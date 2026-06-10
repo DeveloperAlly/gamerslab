@@ -1,3 +1,6 @@
-name = "gamerslab"
-main = "worker.js"
+name = "geo-monitor-worker"
+main = "cloudflare/worker.js"
 compatibility_date = "2024-01-01"
+
+[placement]
+mode = "smart"
