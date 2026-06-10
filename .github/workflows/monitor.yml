@@ -1,61 +1,100 @@
-- name: Run monitor check
-  env:
-    WORKER_URL: ${{ secrets.WORKER_URL }}
-    REGION: ${{ matrix.region }}
-    MODE: ${{ github.event.inputs.mode }}
-  run: |
-    # Standard check — single request, capture full result
-    RESULT=$(curl -s -X GET "$WORKER_URL" \
-      -H "X-Monitor-Region: $REGION" \
-      -H "X-Monitor-Mode: $MODE")
+name: Geo Monitor
 
-    echo "Result: $RESULT"
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'standard or surge'
+        default: 'standard'
+        required: true
+      regions:
+        description: 'comma-separated regions (informational only)'
+        default: 'us-east,eu-west,ap-southeast,sa-east,me-south,af-south'
+        required: false
 
-    # For surge mode — fire concurrent requests
-    if [ "$MODE" = "surge" ]; then
-      for i in $(seq 1 20); do
-        curl -s "$WORKER_URL" -H "X-Monitor-Region: $REGION" &
-      done
-      wait
-    fi
+jobs:
+  monitor:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - region: us-east
+            runner: ubuntu-latest
+          - region: eu-west
+            runner: ubuntu-latest
+          - region: ap-southeast
+            runner: ubuntu-latest
+          - region: sa-east
+            runner: ubuntu-latest
+          - region: me-south
+            runner: ubuntu-latest
+          - region: af-south
+            runner: ubuntu-latest
 
-    echo "MONITOR_RESULT=$RESULT" >> $GITHUB_ENV
+    runs-on: ${{ matrix.runner }}
 
-- name: Push to Supabase
-  env:
-    SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-    SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-    REGION: ${{ matrix.region }}
-    MODE: ${{ github.event.inputs.mode }}
-  run: |
-    python3 - <<'EOF'
-    import json, urllib.request, os, time
+    steps:
+      - name: Run monitor check
+        env:
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+          REGION: ${{ matrix.region }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          # Standard check — single request, capture full result
+          RESULT=$(curl -s -X GET "$WORKER_URL" \
+            -H "X-Monitor-Region: $REGION" \
+            -H "X-Monitor-Mode: $MODE")
 
-    raw = os.environ.get('MONITOR_RESULT', '{}')
-    data = json.loads(raw)
+          echo "Result: $RESULT"
 
-    payload = json.dumps({
-      "region": os.environ['REGION'],
-      "status": 1 if data.get('ok') else 0,
-      "ttfb_ms": data.get('ttfb_ms'),
-      "content_language": data.get('content_language'),
-      "accept_language_sent": data.get('accept_language_sent'),
-      "cf_colo": data.get('cf_colo'),
-      "mode": os.environ.get('MODE', 'standard'),
-      "checked_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-    }).encode()
+          # For surge mode — fire 20 concurrent requests then capture one result
+          if [ "$MODE" = "surge" ]; then
+            for i in $(seq 1 19); do
+              curl -s "$WORKER_URL" -H "X-Monitor-Region: $REGION" > /dev/null &
+            done
+            wait
+          fi
 
-    req = urllib.request.Request(
-      f"{os.environ['SUPABASE_URL']}/rest/v1/monitor_results",
-      data=payload,
-      headers={
-        'apikey': os.environ['SUPABASE_KEY'],
-        'Authorization': f"Bearer {os.environ['SUPABASE_KEY']}",
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
-      },
-      method='POST'
-    )
-    urllib.request.urlopen(req)
-    print(f"Pushed: {data}")
-    EOF
+          echo "MONITOR_RESULT=$RESULT" >> $GITHUB_ENV
+
+      - name: Push to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          REGION: ${{ matrix.region }}
+          MODE: ${{ github.event.inputs.mode }}
+        run: |
+          python3 - <<'EOF'
+          import json, urllib.request, os, time
+
+          raw = os.environ.get('MONITOR_RESULT', '{}')
+          try:
+            data = json.loads(raw)
+          except Exception:
+            data = {}
+
+          payload = json.dumps({
+            "region": os.environ['REGION'],
+            "status": 1 if data.get('ok') else 0,
+            "ttfb_ms": data.get('ttfb_ms'),
+            "content_language": data.get('content_language'),
+            "accept_language_sent": data.get('accept_language_sent'),
+            "cf_colo": data.get('cf_colo'),
+            "mode": os.environ.get('MODE', 'standard'),
+            "checked_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+          }).encode()
+
+          req = urllib.request.Request(
+            f"{os.environ['SUPABASE_URL']}/rest/v1/monitor_results",
+            data=payload,
+            headers={
+              'apikey': os.environ['SUPABASE_KEY'],
+              'Authorization': f"Bearer {os.environ['SUPABASE_KEY']}",
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
+            },
+            method='POST'
+          )
+          urllib.request.urlopen(req)
+          print(f"Pushed result for {os.environ['REGION']}: status={data.get('ok')}, ttfb={data.get('ttfb_ms')}ms, colo={data.get('cf_colo')}")
+          EOF
