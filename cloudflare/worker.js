@@ -10,25 +10,53 @@ export default {
     const acceptLanguage = getAcceptLanguage(region);
     const start = Date.now();
 
-    let status, ttfb, contentLanguage, bodySnippet;
-
     try {
       const resp = await fetch(targetUrl, {
         headers: {
           "Accept-Language": acceptLanguage,
-          "User-Agent": "GeoMonitor/1.0",
-          "X-Forwarded-For": request.headers.get("CF-Connecting-IP") || "",
+          // Realistic browser UA — itch.io blocks obvious bot user agents
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
         },
         cf: {
           cacheEverything: false,
         },
       });
 
-      ttfb = Date.now() - start;
-      status = resp.status;
-      contentLanguage = resp.headers.get("Content-Language") || "";
+      const ttfb = Date.now() - start;
+      const status = resp.status;
+      const contentLanguage = resp.headers.get("Content-Language") || "";
       const text = await resp.text();
-      bodySnippet = text.slice(0, 200);
+
+      // Check body confirms page loaded — not a bot block / Cloudflare challenge page
+      const bodyOk =
+        text.includes("bug-seek") ||
+        text.includes("Bug Seek") ||
+        text.includes("itch.io");
+      const blocked = status === 403 || text.includes("cf-browser-verification");
+
+      return new Response(
+        JSON.stringify({
+          region,
+          status,
+          ttfb_ms: ttfb,
+          content_language: contentLanguage,
+          accept_language_sent: acceptLanguage,
+          cf_colo: request.cf?.colo || "unknown",
+          body_ok: bodyOk,
+          blocked,
+          ok: status >= 200 && status < 400 && bodyOk && !blocked,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     } catch (err) {
       return new Response(
         JSON.stringify({
@@ -37,38 +65,22 @@ export default {
           error: err.message,
           ttfb_ms: Date.now() - start,
           cf_colo: request.cf?.colo || "unknown",
+          ok: false,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }
-
-    return new Response(
-      JSON.stringify({
-        region,
-        status,
-        ttfb_ms: ttfb,
-        content_language: contentLanguage,
-        accept_language_sent: acceptLanguage,
-        cf_colo: request.cf?.colo || "unknown", // which Cloudflare PoP served this
-        body_snippet: bodySnippet,
-        ok: status >= 200 && status < 400,
-      }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
   },
 };
 
 function getAcceptLanguage(region) {
   const map = {
-    "us-east": "en-US,en;q=0.9",
-    "eu-west": "fr-FR,fr;q=0.9,en;q=0.8",
+    "us-east":      "en-US,en;q=0.9",
+    "eu-west":      "fr-FR,fr;q=0.9,en;q=0.8",
     "ap-southeast": "zh-CN,zh;q=0.9,en;q=0.8",
-    "sa-east": "pt-BR,pt;q=0.9,en;q=0.8",
-    "me-south": "ar-SA,ar;q=0.9,en;q=0.8",
-    "af-south": "sw-KE,sw;q=0.9,en;q=0.8",
+    "sa-east":      "pt-BR,pt;q=0.9,en;q=0.8",
+    "me-south":     "ar-SA,ar;q=0.9,en;q=0.8",
+    "af-south":     "sw-KE,sw;q=0.9,en;q=0.8",
   };
   return map[region] || "en-US";
 }
