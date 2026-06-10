@@ -27,25 +27,13 @@
       {
         "parameters": {
           "method": "POST",
-          "url": "https://api.github.com/repos/{{ $env.GITHUB_REPO_OWNER }}/{{ $env.GITHUB_REPO_NAME }}/actions/workflows/monitor.yml/dispatches",
+          "url": "=https://api.github.com/repos/{{$env.GITHUB_REPO_OWNER}}/{{$env.GITHUB_REPO_NAME}}/actions/workflows/monitor.yml/dispatches",
           "authentication": "genericCredentialType",
           "genericAuthType": "httpHeaderAuth",
           "sendBody": true,
-          "bodyParameters": {
-            "parameters": [
-              {
-                "name": "ref",
-                "value": "main"
-              },
-              {
-                "name": "inputs",
-                "value": "={{ JSON.stringify({ mode: 'standard' }) }}"
-              }
-            ]
-          },
-          "options": {
-            "response": { "response": { "responseFormat": "text" } }
-          }
+          "specifyBody": "json",
+          "jsonBody": "={\"ref\":\"main\",\"inputs\":{\"mode\":\"standard\"}}",
+          "options": {}
         },
         "id": "dispatch-standard",
         "name": "Dispatch standard run",
@@ -87,22 +75,13 @@
       {
         "parameters": {
           "method": "POST",
-          "url": "https://api.github.com/repos/{{ $env.GITHUB_REPO_OWNER }}/{{ $env.GITHUB_REPO_NAME }}/actions/workflows/monitor.yml/dispatches",
+          "url": "=https://api.github.com/repos/{{$env.GITHUB_REPO_OWNER}}/{{$env.GITHUB_REPO_NAME}}/actions/workflows/monitor.yml/dispatches",
           "authentication": "genericCredentialType",
           "genericAuthType": "httpHeaderAuth",
           "sendBody": true,
-          "bodyParameters": {
-            "parameters": [
-              { "name": "ref", "value": "main" },
-              {
-                "name": "inputs",
-                "value": "={{ JSON.stringify({ mode: 'surge', regions: 'us-east,eu-west,ap-southeast,sa-east,me-south,af-south' }) }}"
-              }
-            ]
-          },
-          "options": {
-            "response": { "response": { "responseFormat": "text" } }
-          }
+          "specifyBody": "json",
+          "jsonBody": "={\"ref\":\"main\",\"inputs\":{\"mode\":\"surge\",\"regions\":\"us-east,eu-west,ap-southeast,sa-east,me-south,af-south\"}}",
+          "options": {}
         },
         "id": "dispatch-surge",
         "name": "Dispatch surge run",
@@ -153,18 +132,30 @@
       },
       {
         "parameters": {
-          "operation": "executeQuery",
-          "query": "SELECT region, ttfb_ms, cf_colo, checked_at FROM monitor_results WHERE checked_at > now() - interval '30 minutes' AND status = 0 ORDER BY checked_at DESC",
+          "method": "GET",
+          "url": "=https://{{$env.SUPABASE_PROJECT_REF}}.supabase.co/rest/v1/monitor_results",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              { "name": "select", "value": "region,ttfb_ms,cf_colo,checked_at" },
+              { "name": "status", "value": "eq.0" },
+              { "name": "order", "value": "checked_at.desc" }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              { "name": "apikey", "value": "={{$env.SUPABASE_SECRET_KEY}}" },
+              { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SECRET_KEY}}" }
+            ]
+          },
           "options": {}
         },
         "id": "check-failures",
         "name": "Check for failures",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2,
-        "position": [460, 300],
-        "credentials": {
-          "postgres": { "id": "supabase-db", "name": "Supabase DB" }
-        }
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [460, 300]
       },
       {
         "parameters": {
