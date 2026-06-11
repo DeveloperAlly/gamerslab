@@ -1,24 +1,32 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0a0a0c;
-  --s1: #111114;
-  --s2: #18181c;
-  --s3: #202026;
-  --b1: rgba(255,255,255,0.05);
-  --b2: rgba(255,255,255,0.09);
-  --b3: rgba(255,255,255,0.15);
-  --tx: #e4e4ea;
-  --mu: #7a7a92;
-  --hi: #44445a;
-  --green: #00c97a;
-  --green-dim: rgba(0,201,122,0.1);
-  --red: #f03e3e;
-  --red-dim: rgba(240,62,62,0.1);
+  /* GamersLab brand palette — derived from logo */
+  --bg: #0d0a0a;
+  --s1: #161010;
+  --s2: #1e1515;
+  --s3: #261b1b;
+  --b1: rgba(255,255,255,0.06);
+  --b2: rgba(255,255,255,0.10);
+  --b3: rgba(255,255,255,0.18);
+  --tx: #f0ebe8;
+  --mu: #9a8a85;
+  --hi: #5a4540;
+
+  /* Brand accent — GamersLab orange */
+  --acc: #e8621a;
+  --acc-dim: rgba(232,98,26,0.12);
+  --acc-bright: #ff7a30;
+
+  /* Status colors */
+  --green: #2ecc8a;
+  --green-dim: rgba(46,204,138,0.10);
+  --red: #f04040;
+  --red-dim: rgba(240,64,64,0.10);
   --amber: #f5a623;
-  --amber-dim: rgba(245,166,35,0.1);
-  --blue: #4d94ff;
-  --acc: #00c97a;
+  --amber-dim: rgba(245,166,35,0.10);
+  --blue: #5b9cf6;
+
   --mono: 'IBM Plex Mono', monospace;
   --sans: 'Inter', sans-serif;
 }
@@ -38,7 +46,7 @@ input, select, textarea { font-family: var(--mono); }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--b3); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: rgba(232,98,26,0.3); border-radius: 2px; }
 
 @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.25; } }
 @keyframes spin { to { transform: rotate(360deg); } }
