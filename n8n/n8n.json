@@ -3,45 +3,25 @@
     "name": "Workflow A — Scheduled monitor",
     "nodes": [
       {
-        "parameters": {
-          "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] }
-        },
-        "id": "schedule-trigger",
-        "name": "Schedule Trigger",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1,
-        "position": [240, 300]
+        "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] } },
+        "id": "schedule-trigger", "name": "Schedule Trigger",
+        "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [240, 300]
       },
       {
-        "parameters": {
-          "jsCode": "// ~30% fire rate — random interval effect\nif (Math.random() > 0.3) { return []; }\nreturn [{ json: { proceed: true } }];"
-        },
-        "id": "random-gate",
-        "name": "Random gate",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [460, 300]
+        "parameters": { "jsCode": "if (Math.random() > 0.3) { return []; }\nreturn [{ json: { proceed: true } }];" },
+        "id": "random-gate", "name": "Random gate",
+        "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300]
       },
       {
         "parameters": {
           "resource": "workflowDispatch",
           "owner": "={{ $env.GITHUB_REPO_OWNER }}",
           "repository": "={{ $env.GITHUB_REPO_NAME }}",
-          "workflowId": "monitor.yml",
-          "ref": "main",
-          "additionalFields": {
-            "inputs": {
-              "inputsUi": {
-                "inputValues": [{ "name": "mode", "value": "standard" }]
-              }
-            }
-          }
+          "workflowId": "monitor.yml", "ref": "main",
+          "additionalFields": { "inputs": { "inputsUi": { "inputValues": [{ "name": "mode", "value": "standard" }] } } }
         },
-        "id": "dispatch-standard",
-        "name": "Dispatch standard run",
-        "type": "n8n-nodes-base.github",
-        "typeVersion": 1,
-        "position": [680, 300],
+        "id": "dispatch-standard", "name": "Dispatch standard run",
+        "type": "n8n-nodes-base.github", "typeVersion": 1, "position": [680, 300],
         "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
       }
     ],
@@ -55,55 +35,26 @@
     "name": "Workflow B — Campaign surge webhook",
     "nodes": [
       {
-        "parameters": {
-          "httpMethod": "POST",
-          "path": "surge",
-          "responseMode": "responseNode",
-          "options": {}
-        },
-        "id": "surge-webhook",
-        "name": "Surge webhook",
-        "type": "n8n-nodes-base.webhook",
-        "typeVersion": 1,
-        "position": [240, 300],
-        "webhookId": "surge"
+        "parameters": { "httpMethod": "POST", "path": "surge", "responseMode": "responseNode", "options": {} },
+        "id": "surge-webhook", "name": "Surge webhook",
+        "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 300], "webhookId": "surge"
       },
       {
         "parameters": {
           "resource": "workflowDispatch",
           "owner": "={{ $env.GITHUB_REPO_OWNER }}",
           "repository": "={{ $env.GITHUB_REPO_NAME }}",
-          "workflowId": "monitor.yml",
-          "ref": "main",
-          "additionalFields": {
-            "inputs": {
-              "inputsUi": {
-                "inputValues": [
-                  { "name": "mode", "value": "surge" },
-                  { "name": "regions", "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south" }
-                ]
-              }
-            }
-          }
+          "workflowId": "monitor.yml", "ref": "main",
+          "additionalFields": { "inputs": { "inputsUi": { "inputValues": [{ "name": "mode", "value": "surge" }, { "name": "regions", "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south" }] } } }
         },
-        "id": "dispatch-surge",
-        "name": "Dispatch surge run",
-        "type": "n8n-nodes-base.github",
-        "typeVersion": 1,
-        "position": [460, 300],
+        "id": "dispatch-surge", "name": "Dispatch surge run",
+        "type": "n8n-nodes-base.github", "typeVersion": 1, "position": [460, 300],
         "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
       },
       {
-        "parameters": {
-          "respondWith": "json",
-          "responseBody": "={ \"triggered\": true }",
-          "options": {}
-        },
-        "id": "respond",
-        "name": "Respond",
-        "type": "n8n-nodes-base.respondToWebhook",
-        "typeVersion": 1,
-        "position": [680, 300]
+        "parameters": { "respondWith": "json", "responseBody": "={ \"triggered\": true }", "options": {} },
+        "id": "respond", "name": "Respond",
+        "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [680, 300]
       }
     ],
     "connections": {
@@ -113,40 +64,29 @@
     "settings": { "executionOrder": "v1" }
   },
   {
-    "name": "Workflow C — Failure alerting (Discord)",
+    "name": "Workflow C — Stats + alerting (Discord)",
     "nodes": [
       {
-        "parameters": {
-          "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] }
-        },
-        "id": "alert-schedule",
-        "name": "Alert schedule",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1,
-        "position": [240, 300]
+        "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 30 }] } },
+        "id": "alert-schedule", "name": "Alert schedule",
+        "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [240, 300]
       },
       {
         "parameters": {
           "operation": "executeQuery",
-          "query": "SELECT\n  COUNT(*) FILTER (WHERE status = 0) AS failure_count,\n  COUNT(*) AS total_count,\n  MAX(checked_at) AS last_seen\nFROM monitor_results\nWHERE checked_at > now() - interval '30 minutes'",
+          "query": "SELECT\n  COUNT(*) FILTER (WHERE status = 1) AS ok_count,\n  COUNT(*) FILTER (WHERE status = 0) AS failure_count,\n  COUNT(*) AS total_count,\n  ROUND(AVG(ttfb_ms)::numeric, 0) AS avg_ttfb,\n  MAX(checked_at) AS last_seen,\n  COUNT(*) FILTER (WHERE mode = 'surge') AS surge_count,\n  json_agg(json_build_object('region', region, 'ok', CASE WHEN status=1 THEN true ELSE false END, 'ttfb', ttfb_ms, 'colo', cf_colo) ORDER BY checked_at DESC) FILTER (WHERE checked_at > now() - interval '30 minutes') AS recent\nFROM monitor_results\nWHERE checked_at > now() - interval '30 minutes'",
           "options": {}
         },
-        "id": "check-status",
-        "name": "Check status",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2,
-        "position": [460, 300],
+        "id": "check-status", "name": "Check status",
+        "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [460, 300],
         "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
       },
       {
         "parameters": {
-          "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst lastSeen = row.last_seen;\n\nif (total === 0) {\n  return [{ json: { alertType: 'dead', message: '💀 **Monitor pipeline is down**\\n\\nNo results received in the last 30 minutes.\\nGitHub Actions may have stopped running.\\n\\nCheck: https://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\nif (failures > 0) {\n  return [{ json: { alertType: 'failure', message: `🚨 **Geo monitor failures detected**\\n\\n**Failed checks:** ${failures} of ${total} in last 30 min\\n**Last result:** ${lastSeen}` } }];\n}\n\nreturn [];"
+          "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst ok = parseInt(row.ok_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst avgTtfb = parseInt(row.avg_ttfb) || 0;\nconst lastSeen = row.last_seen ? new Date(row.last_seen).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Melbourne' }) : 'n/a';\nconst surgeCount = parseInt(row.surge_count) || 0;\n\n// Pipeline dead\nif (total === 0) {\n  return [{ json: { message: '💀 **Monitor pipeline is down**\\n\\nNo results in the last 30 minutes. GitHub Actions may have stopped.\\n\\nhttps://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\n// Build per-region summary from recent runs\nconst recent = row.recent || [];\nconst byRegion = {};\nfor (const r of recent) {\n  if (!byRegion[r.region]) byRegion[r.region] = { ok: 0, fail: 0, ttfbs: [] };\n  r.ok ? byRegion[r.region].ok++ : byRegion[r.region].fail++;\n  if (r.ttfb) byRegion[r.region].ttfbs.push(r.ttfb);\n}\n\nconst regionLines = Object.entries(byRegion).map(([reg, d]) => {\n  const tot = d.ok + d.fail;\n  const pct = tot ? Math.round(d.ok / tot * 100) : 0;\n  const avg = d.ttfbs.length ? Math.round(d.ttfbs.reduce((a,b)=>a+b,0)/d.ttfbs.length) : 0;\n  const icon = pct === 100 ? '🟢' : pct >= 80 ? '🟡' : '🔴';\n  return `${icon} ${reg} — ${pct}% uptime · ${avg}ms avg`;\n}).join('\\n');\n\nconst statusIcon = failures === 0 ? '✅' : failures < 3 ? '⚠️' : '🚨';\nconst header = `${statusIcon} **GamersLab Monitor — 30 min report**`;\nconst summary = `**Checks:** ${ok}/${total} passed · **Avg TTFB:** ${avgTtfb}ms · **Last run:** ${lastSeen}${surgeCount > 0 ? ` · **Surge runs:** ${surgeCount}` : ''}`;\nconst failLine = failures > 0 ? `\\n⚠️ **${failures} failures detected**` : '';\n\nreturn [{ json: { message: `${header}\\n${summary}${failLine}\\n\\n${regionLines}` } }];"
         },
-        "id": "evaluate-status",
-        "name": "Evaluate status",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [680, 300]
+        "id": "evaluate-status", "name": "Build report",
+        "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [680, 300]
       },
       {
         "parameters": {
@@ -156,18 +96,15 @@
           "content": "={{ $json.message }}",
           "options": {}
         },
-        "id": "discord-alert",
-        "name": "Send alert",
-        "type": "n8n-nodes-base.discord",
-        "typeVersion": 2,
-        "position": [900, 300],
+        "id": "discord-alert", "name": "Send report",
+        "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [900, 300],
         "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
       }
     ],
     "connections": {
       "Alert schedule": { "main": [[{ "node": "Check status", "type": "main", "index": 0 }]] },
-      "Check status": { "main": [[{ "node": "Evaluate status", "type": "main", "index": 0 }]] },
-      "Evaluate status": { "main": [[{ "node": "Send alert", "type": "main", "index": 0 }]] }
+      "Check status": { "main": [[{ "node": "Build report", "type": "main", "index": 0 }]] },
+      "Build report": { "main": [[{ "node": "Send report", "type": "main", "index": 0 }]] }
     },
     "settings": { "executionOrder": "v1" }
   },
@@ -175,42 +112,24 @@
     "name": "Workflow D — Target URL sync",
     "nodes": [
       {
-        "parameters": {
-          "httpMethod": "POST",
-          "path": "update-target",
-          "responseMode": "responseNode",
-          "options": {}
-        },
-        "id": "target-webhook",
-        "name": "Target webhook",
-        "type": "n8n-nodes-base.webhook",
-        "typeVersion": 1,
-        "position": [240, 300],
-        "webhookId": "update-target"
+        "parameters": { "httpMethod": "POST", "path": "update-target", "responseMode": "responseNode", "options": {} },
+        "id": "target-webhook", "name": "Target webhook",
+        "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 300], "webhookId": "update-target"
       },
       {
-        "parameters": {
-          "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url, set_at: new Date().toISOString(), active: true } }];"
-        },
-        "id": "validate-url",
-        "name": "Validate URL",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [460, 300]
+        "parameters": { "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url, set_at: new Date().toISOString(), active: true } }];" },
+        "id": "validate-url", "name": "Validate URL",
+        "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300]
       },
       {
         "parameters": {
           "operation": "insert",
           "schema": { "__rl": true, "value": "public", "mode": "list" },
           "table": { "__rl": true, "value": "targets", "mode": "list", "cachedResultName": "targets" },
-          "dataMode": "autoMapInputData",
-          "options": {}
+          "dataMode": "autoMapInputData", "options": {}
         },
-        "id": "save-to-supabase",
-        "name": "Save to Supabase",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2,
-        "position": [680, 300],
+        "id": "save-to-supabase", "name": "Save to Supabase",
+        "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [680, 300],
         "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
       },
       {
@@ -221,24 +140,14 @@
           "content": "=🎯 **Monitor target updated**\n\n**URL:** {{ $json.url }}\n**Name:** {{ $json.name }}",
           "options": {}
         },
-        "id": "notify-discord",
-        "name": "Notify Discord",
-        "type": "n8n-nodes-base.discord",
-        "typeVersion": 2,
-        "position": [900, 300],
+        "id": "notify-discord", "name": "Notify Discord",
+        "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [900, 300],
         "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
       },
       {
-        "parameters": {
-          "respondWith": "json",
-          "responseBody": "={ \"updated\": true }",
-          "options": {}
-        },
-        "id": "respond-target",
-        "name": "Respond",
-        "type": "n8n-nodes-base.respondToWebhook",
-        "typeVersion": 1,
-        "position": [1100, 300]
+        "parameters": { "respondWith": "json", "responseBody": "={ \"updated\": true }", "options": {} },
+        "id": "respond-target", "name": "Respond",
+        "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [1100, 300]
       }
     ],
     "connections": {
@@ -253,50 +162,25 @@
     "name": "Workflow E — Scheduled surge testing",
     "nodes": [
       {
-        "parameters": {
-          "rule": {
-            "interval": [{ "field": "hours", "hoursInterval": 2 }]
-          }
-        },
-        "id": "surge-schedule",
-        "name": "Surge schedule",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1,
-        "position": [240, 300]
+        "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] } },
+        "id": "surge-schedule", "name": "Surge schedule",
+        "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [240, 300]
       },
       {
-        "parameters": {
-          "jsCode": "// Random 50% fire rate — not every 2h tick fires\n// This creates unpredictable surge timing which better simulates real campaign spikes\nif (Math.random() > 0.5) { return []; }\nreturn [{ json: { proceed: true } }];"
-        },
-        "id": "surge-gate",
-        "name": "Random surge gate",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [460, 300]
+        "parameters": { "jsCode": "if (Math.random() > 0.5) { return []; }\nreturn [{ json: { proceed: true } }];" },
+        "id": "surge-gate", "name": "Random surge gate",
+        "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300]
       },
       {
         "parameters": {
           "resource": "workflowDispatch",
           "owner": "={{ $env.GITHUB_REPO_OWNER }}",
           "repository": "={{ $env.GITHUB_REPO_NAME }}",
-          "workflowId": "monitor.yml",
-          "ref": "main",
-          "additionalFields": {
-            "inputs": {
-              "inputsUi": {
-                "inputValues": [
-                  { "name": "mode", "value": "surge" },
-                  { "name": "regions", "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south" }
-                ]
-              }
-            }
-          }
+          "workflowId": "monitor.yml", "ref": "main",
+          "additionalFields": { "inputs": { "inputsUi": { "inputValues": [{ "name": "mode", "value": "surge" }, { "name": "regions", "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south" }] } } }
         },
-        "id": "dispatch-scheduled-surge",
-        "name": "Dispatch scheduled surge",
-        "type": "n8n-nodes-base.github",
-        "typeVersion": 1,
-        "position": [680, 300],
+        "id": "dispatch-scheduled-surge", "name": "Dispatch scheduled surge",
+        "type": "n8n-nodes-base.github", "typeVersion": 1, "position": [680, 300],
         "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
       },
       {
@@ -307,11 +191,8 @@
           "content": "⚡ **Scheduled surge test fired**\n\nAutomated campaign spike simulation starting across all 6 regions.",
           "options": {}
         },
-        "id": "surge-notify",
-        "name": "Notify Discord",
-        "type": "n8n-nodes-base.discord",
-        "typeVersion": 2,
-        "position": [900, 300],
+        "id": "surge-notify", "name": "Notify Discord",
+        "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [900, 300],
         "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
       }
     ],
@@ -319,6 +200,141 @@
       "Surge schedule": { "main": [[{ "node": "Random surge gate", "type": "main", "index": 0 }]] },
       "Random surge gate": { "main": [[{ "node": "Dispatch scheduled surge", "type": "main", "index": 0 }]] },
       "Dispatch scheduled surge": { "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]] }
+    },
+    "settings": { "executionOrder": "v1" }
+  },
+  {
+    "name": "Workflow F — Scheduled one-off surge events",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "schedule-surge",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "schedule-surge-webhook", "name": "Schedule surge webhook",
+        "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 300], "webhookId": "schedule-surge"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Expects: { scheduledAt: '2026-06-15T14:00:00+10:00', label: 'itch launch event' }\nconst { scheduledAt, label } = $input.first().json.body;\nif (!scheduledAt) throw new Error('scheduledAt is required (ISO 8601)');\n\nconst fireAt = new Date(scheduledAt);\nconst now = new Date();\nconst delayMs = fireAt.getTime() - now.getTime();\n\nif (delayMs < 0) throw new Error('scheduledAt must be in the future');\nif (delayMs > 15 * 24 * 60 * 60 * 1000) throw new Error('scheduledAt must be within 15 days');\n\n// Store the scheduled event in Supabase via output — downstream Postgres node handles insert\nreturn [{ json: { \n  scheduledAt: fireAt.toISOString(),\n  label: label || 'Scheduled surge',\n  delayMs,\n  delayMinutes: Math.round(delayMs / 60000)\n} }];"
+        },
+        "id": "validate-schedule", "name": "Validate schedule",
+        "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300]
+      },
+      {
+        "parameters": {
+          "operation": "insert",
+          "schema": { "__rl": true, "value": "public", "mode": "list" },
+          "table": { "__rl": true, "value": "scheduled_surges", "mode": "list", "cachedResultName": "scheduled_surges" },
+          "dataMode": "defineBelow",
+          "valuesToSend": {
+            "values": [
+              { "column": "scheduled_at", "value": "={{ $json.scheduledAt }}" },
+              { "column": "label", "value": "={{ $json.label }}" },
+              { "column": "status", "value": "pending" },
+              { "column": "created_at", "value": "={{ new Date().toISOString() }}" }
+            ]
+          },
+          "options": {}
+        },
+        "id": "save-surge-event", "name": "Save surge event",
+        "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [680, 300],
+        "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
+      },
+      {
+        "parameters": {
+          "resource": "message",
+          "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+          "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+          "content": "=📅 **Surge event scheduled**\n\n**Label:** {{ $json.label }}\n**Fires at:** {{ $json.scheduledAt }}\n**In:** {{ $json.delayMinutes }} minutes",
+          "options": {}
+        },
+        "id": "confirm-discord", "name": "Confirm Discord",
+        "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [900, 300],
+        "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+      },
+      {
+        "parameters": { "respondWith": "json", "responseBody": "={{ JSON.stringify({ scheduled: true, scheduledAt: $json.scheduledAt, label: $json.label, delayMinutes: $json.delayMinutes }) }}", "options": {} },
+        "id": "respond-schedule", "name": "Respond",
+        "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [1100, 300]
+      }
+    ],
+    "connections": {
+      "Schedule surge webhook": { "main": [[{ "node": "Validate schedule", "type": "main", "index": 0 }]] },
+      "Validate schedule": { "main": [[{ "node": "Save surge event", "type": "main", "index": 0 }]] },
+      "Save surge event": { "main": [[{ "node": "Confirm Discord", "type": "main", "index": 0 }]] },
+      "Confirm Discord": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+    },
+    "settings": { "executionOrder": "v1" }
+  },
+  {
+    "name": "Workflow G — Execute scheduled surge events",
+    "nodes": [
+      {
+        "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 1 }] } },
+        "id": "poll-schedule", "name": "Poll schedule",
+        "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [240, 300]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT id, scheduled_at, label FROM scheduled_surges\nWHERE status = 'pending'\nAND scheduled_at <= now() + interval '1 minute'\nAND scheduled_at >= now() - interval '5 minutes'\nORDER BY scheduled_at ASC\nLIMIT 5",
+          "options": {}
+        },
+        "id": "check-due", "name": "Check due events",
+        "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [460, 300],
+        "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
+      },
+      {
+        "parameters": {
+          "conditions": { "number": [{ "value1": "={{ $items().length }}", "operation": "larger", "value2": 0 }] }
+        },
+        "id": "any-due", "name": "Any due?",
+        "type": "n8n-nodes-base.if", "typeVersion": 1, "position": [680, 300]
+      },
+      {
+        "parameters": {
+          "resource": "workflowDispatch",
+          "owner": "={{ $env.GITHUB_REPO_OWNER }}",
+          "repository": "={{ $env.GITHUB_REPO_NAME }}",
+          "workflowId": "monitor.yml", "ref": "main",
+          "additionalFields": { "inputs": { "inputsUi": { "inputValues": [{ "name": "mode", "value": "surge" }, { "name": "regions", "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south" }] } } }
+        },
+        "id": "fire-surge", "name": "Fire surge",
+        "type": "n8n-nodes-base.github", "typeVersion": 1, "position": [900, 220],
+        "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE scheduled_surges SET status = 'fired', fired_at = now() WHERE id = {{ $json.id }}",
+          "options": {}
+        },
+        "id": "mark-fired", "name": "Mark fired",
+        "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [1120, 220],
+        "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
+      },
+      {
+        "parameters": {
+          "resource": "message",
+          "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+          "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+          "content": "=⚡ **Scheduled surge fired**\n\n**Event:** {{ $json.label }}\n**Scheduled for:** {{ $json.scheduled_at }}\n\nSurge test running across all 6 regions now.",
+          "options": {}
+        },
+        "id": "fire-discord", "name": "Notify Discord",
+        "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [1340, 220],
+        "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+      }
+    ],
+    "connections": {
+      "Poll schedule": { "main": [[{ "node": "Check due events", "type": "main", "index": 0 }]] },
+      "Check due events": { "main": [[{ "node": "Any due?", "type": "main", "index": 0 }]] },
+      "Any due?": { "main": [[{ "node": "Fire surge", "type": "main", "index": 0 }], []] },
+      "Fire surge": { "main": [[{ "node": "Mark fired", "type": "main", "index": 0 }]] },
+      "Mark fired": { "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]] }
     },
     "settings": { "executionOrder": "v1" }
   }
