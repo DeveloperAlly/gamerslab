@@ -73,16 +73,12 @@ async function handleTrigger(request, env) {
 }
 
 // ── Schedule update ───────────────────────────────────────────────────────────
-// GET the workflow, patch only the Schedule Trigger node's interval in the nodes
-// array, then PUT back only the minimal fields n8n accepts.
-// n8n PUT /api/v1/workflows/:id accepts: name, nodes, connections, settings, staticData
 async function handleSchedule(request, env) {
   if (!env.N8N_API_KEY) return err("N8N_API_KEY not configured");
 
   const body = await request.json().catch(() => ({}));
   const intervalMinutes = parseInt(body.intervalMinutes) || 5;
 
-  // GET current workflow to get nodes + connections
   const getRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
     headers: { "X-N8N-API-KEY": env.N8N_API_KEY },
   });
@@ -104,12 +100,23 @@ async function handleSchedule(request, env) {
     return node;
   });
 
-  // PUT with only the fields n8n accepts — no id, versionId, active, meta, scopes etc.
+  // n8n PUT /api/v1/workflows/:id only accepts these top-level fields.
+  // settings only accepts: executionOrder, timezone, saveManualExecutions,
+  // callerPolicy, errorWorkflow, executionTimeout — strip everything else.
+  const { executionOrder, timezone, saveManualExecutions, callerPolicy, errorWorkflow, executionTimeout } = wf.settings || {};
+  const cleanSettings = {};
+  if (executionOrder)        cleanSettings.executionOrder = executionOrder;
+  if (timezone)              cleanSettings.timezone = timezone;
+  if (saveManualExecutions !== undefined) cleanSettings.saveManualExecutions = saveManualExecutions;
+  if (callerPolicy)          cleanSettings.callerPolicy = callerPolicy;
+  if (errorWorkflow)         cleanSettings.errorWorkflow = errorWorkflow;
+  if (executionTimeout)      cleanSettings.executionTimeout = executionTimeout;
+
   const putBody = {
     name: wf.name,
     nodes,
     connections: wf.connections,
-    settings: wf.settings,
+    settings: cleanSettings,
     staticData: wf.staticData || null,
   };
 
@@ -121,8 +128,8 @@ async function handleSchedule(request, env) {
 
   if (!putRes.ok) return err(`Failed to update workflow: ${await putRes.text()}`, putRes.status);
 
-  // Re-publish so the schedule change takes effect immediately
-  const activateRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}/activate`, {
+  // Re-activate so the new schedule takes effect immediately
+  await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}/activate`, {
     method: "POST",
     headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
   });
