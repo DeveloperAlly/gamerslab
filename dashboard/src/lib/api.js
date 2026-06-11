@@ -36,12 +36,12 @@ async function workerFetch(path, opts = {}) {
 }
 
 export const api = {
-  // ── Monitor results ───────────────────────────────────────────────────────────
+  // ── Monitor results ─────────────────────────────────────────────────────────
   results(hours = 24) {
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString()
     return sbFetch(
       `/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,runner_ip,mode,checked_at,` +
-      `page_title,game_iframe_loaded,js_errors,page_blocked,render_error,referrer_used` +
+      `page_title,game_iframe_loaded,js_errors,page_blocked,render_error,referrer_used,click_check_done,login_prompt_shown` +
       `&checked_at=gte.${since}&order=checked_at.desc&limit=2000`
     )
   },
@@ -93,6 +93,24 @@ export const api = {
   deleteReferrer(id) {
     return sbFetch(`/rest/v1/referrers?id=eq.${id}`, {
       method: 'DELETE',
+      headers: { Prefer: 'return=minimal' },
+    })
+  },
+
+  // ── Monitor config ─────────────────────────────────────────────────────────
+  getConfig() {
+    return sbFetch(`/rest/v1/monitor_config?select=key,value`)
+      .then(rows => {
+        const map = {}
+        rows.forEach(r => { map[r.key] = r.value })
+        return map
+      })
+  },
+
+  setConfig(key, value) {
+    return sbFetch(`/rest/v1/monitor_config?key=eq.${key}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ value: String(value), updated_at: new Date().toISOString() }),
       headers: { Prefer: 'return=minimal' },
     })
   },
