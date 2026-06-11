@@ -3,6 +3,39 @@ const SB_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 const WORKER_URL = import.meta.env.VITE_WORKER_URL
 const N8N_URL = 'https://n8n-j39n.sliplane.app'
 
+// ── Supabase paginated GET ────────────────────────────────────────────────────
+// Supabase REST API silently caps at 1000 rows per request regardless of ?limit=
+// This fetches all pages and concatenates results.
+async function sbGetAll(path) {
+  const PAGE = 1000
+  let offset = 0
+  let all = []
+  while (true) {
+    const res = await fetch(`${SB_URL}${path}`, {
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        'Content-Type': 'application/json',
+        'Range-Unit': 'items',
+        Range: `${offset}-${offset + PAGE - 1}`,
+      },
+    })
+    // 416 = Range Not Satisfiable = no more rows
+    if (res.status === 416) break
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Supabase ${res.status}: ${text}`)
+    }
+    const text = await res.text()
+    const rows = text ? JSON.parse(text) : []
+    all = all.concat(rows)
+    if (rows.length < PAGE) break  // last page
+    offset += PAGE
+  }
+  return all
+}
+
+// ── Supabase single-result or write fetch ─────────────────────────────────────
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SB_URL}${path}`, {
     method: opts.method || 'GET',
@@ -10,10 +43,6 @@ async function sbFetch(path, opts = {}) {
       apikey: SB_KEY,
       Authorization: `Bearer ${SB_KEY}`,
       'Content-Type': 'application/json',
-      // Supabase REST API defaults to 1000 rows regardless of ?limit=
-      // The Range header is required to override this default.
-      // 0-4999 = up to 5000 rows. Adjust as needed.
-      ...((!opts.method || opts.method === 'GET') ? { 'Range-Unit': 'items', Range: '0-4999' } : {}),
       ...(opts.headers || {}),
     },
     body: opts.body,
@@ -41,17 +70,18 @@ async function workerFetch(path, opts = {}) {
 
 export const api = {
   // ── Monitor results (windowed, for charts + live feed) ────────────────────
+  // Paginates automatically — returns ALL rows in the time window, no cap
   results(hours = 24) {
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString()
-    return sbFetch(
+    return sbGetAll(
       `/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,runner_ip,mode,checked_at,` +
       `page_title,game_iframe_loaded,js_errors,page_blocked,render_error,referrer_used,click_check_done,login_prompt_shown` +
-      `&checked_at=gte.${since}&order=checked_at.desc&limit=5000`
+      `&checked_at=gte.${since}&order=checked_at.desc`
     )
   },
 
   // ── All-time aggregate stats (for top stat cards) ─────────────────────────
-  // Uses Supabase count=exact — returns real totals without fetching rows
+  // Uses count=exact — returns real totals without fetching any rows
   async allTimeStats() {
     const [totalRes, okRes, surgeRes] = await Promise.all([
       fetch(`${SB_URL}/rest/v1/monitor_results?select=id`, {
