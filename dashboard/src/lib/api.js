@@ -37,9 +37,13 @@ async function workerFetch(path, opts = {}) {
 
 export const api = {
   // ── Supabase reads ────────────────────────────────────────────────────────
+  // Now includes Playwright fields: page_title, game_iframe_loaded, js_errors, page_blocked, render_error
   results(hours = 24) {
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString()
-    return sbFetch(`/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,runner_ip,mode,checked_at&checked_at=gte.${since}&order=checked_at.desc&limit=2000`)
+    return sbFetch(
+      `/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,runner_ip,mode,checked_at,page_title,game_iframe_loaded,js_errors,page_blocked,render_error` +
+      `&checked_at=gte.${since}&order=checked_at.desc&limit=2000`
+    )
   },
 
   activeTarget() {
