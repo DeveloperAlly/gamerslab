@@ -1,8 +1,11 @@
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,POST,PUT,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Monitor-Region,X-Monitor-Mode",
 };
+
+const N8N_URL = "https://n8n-j39n.sliplane.app";
+const N8N_WORKFLOW_ID = "pTkt5lTwDgTwUY1f";
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -20,25 +23,31 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS });
     }
-
     const url = new URL(request.url);
 
-    // Dashboard trigger API — only endpoint that needs server-side secrets
-    if (url.pathname === "/api/trigger" && request.method === "POST") {
+    if (url.pathname === "/api/trigger" && request.method === "POST")
       return handleTrigger(request, env);
-    }
 
-    // Discord test — needs webhook URL server-side
-    if (url.pathname === "/api/discord-test" && request.method === "POST") {
+    if (url.pathname === "/api/discord-test" && request.method === "POST")
       return handleDiscordTest(env);
-    }
 
-    // Geo proxy — called by GitHub Actions runners
+    if (url.pathname === "/api/schedule" && request.method === "POST")
+      return handleSchedule(request, env);
+
+    if (url.pathname === "/api/workflow/activate" && request.method === "POST")
+      return handleWorkflowActivate(request, env, true);
+
+    if (url.pathname === "/api/workflow/deactivate" && request.method === "POST")
+      return handleWorkflowActivate(request, env, false);
+
+    if (url.pathname === "/api/workflow/status" && request.method === "GET")
+      return handleWorkflowStatus(env);
+
     return handleGeoProxy(request, env);
   },
 };
 
-// ── Trigger GitHub Actions dispatch ──────────────────────────────────────────
+// ── GitHub Actions trigger ────────────────────────────────────────────────────
 async function handleTrigger(request, env) {
   const body = await request.json().catch(() => ({}));
   const mode = body.mode || "standard";
@@ -58,10 +67,72 @@ async function handleTrigger(request, env) {
     }
   );
 
-  if (ghRes.status === 204) {
-    return json({ triggered: true, mode });
-  }
+  if (ghRes.status === 204) return json({ triggered: true, mode });
   return err(`GitHub dispatch failed: ${await ghRes.text()}`, ghRes.status);
+}
+
+// ── Schedule update — patches the n8n workflow Schedule Trigger interval ─────
+async function handleSchedule(request, env) {
+  if (!env.N8N_API_KEY) return err("N8N_API_KEY not configured");
+
+  const body = await request.json().catch(() => ({}));
+  const intervalMinutes = parseInt(body.intervalMinutes) || 5;
+
+  // Fetch current workflow
+  const getRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
+    headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
+  });
+  if (!getRes.ok) return err(`Failed to fetch workflow: ${await getRes.text()}`, getRes.status);
+
+  const workflow = await getRes.json();
+
+  // Patch the Schedule Trigger node interval
+  workflow.nodes = workflow.nodes.map(node => {
+    if (node.type === "n8n-nodes-base.scheduleTrigger" && node.name === "Schedule Trigger") {
+      node.parameters.rule.interval = [{ field: "minutes", minutesInterval: intervalMinutes }];
+    }
+    return node;
+  });
+
+  // Update workflow
+  const putRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
+    method: "PUT",
+    headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify(workflow),
+  });
+
+  if (!putRes.ok) return err(`Failed to update workflow: ${await putRes.text()}`, putRes.status);
+  return json({ updated: true, intervalMinutes });
+}
+
+// ── Activate / deactivate workflow ────────────────────────────────────────────
+async function handleWorkflowActivate(request, env, activate) {
+  if (!env.N8N_API_KEY) return err("N8N_API_KEY not configured");
+
+  const endpoint = activate ? "activate" : "deactivate";
+  const res = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}/${endpoint}`, {
+    method: "POST",
+    headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
+  });
+
+  if (!res.ok) return err(`Failed to ${endpoint} workflow: ${await res.text()}`, res.status);
+  return json({ active: activate });
+}
+
+// ── Get workflow status ───────────────────────────────────────────────────────
+async function handleWorkflowStatus(env) {
+  if (!env.N8N_API_KEY) return err("N8N_API_KEY not configured");
+
+  const res = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
+    headers: { "X-N8N-API-KEY": env.N8N_API_KEY },
+  });
+  if (!res.ok) return err(`Failed to fetch workflow: ${await res.text()}`, res.status);
+
+  const wf = await res.json();
+  const scheduleTrigger = wf.nodes?.find(n => n.name === "Schedule Trigger");
+  const intervalMinutes = scheduleTrigger?.parameters?.rule?.interval?.[0]?.minutesInterval || 5;
+
+  return json({ active: wf.active, intervalMinutes });
 }
 
 // ── Discord test ──────────────────────────────────────────────────────────────
@@ -75,14 +146,11 @@ async function handleDiscordTest(env) {
   return json({ sent: res.ok });
 }
 
-// ── Geo proxy — called by GitHub Actions runners ──────────────────────────────
+// ── Geo proxy — GitHub Actions runners ───────────────────────────────────────
 async function handleGeoProxy(request, env) {
   const region = request.headers.get("X-Monitor-Region") || "unknown";
   const targetUrl = env.TARGET_URL;
-
-  if (!targetUrl) {
-    return new Response("TARGET_URL not set", { status: 500 });
-  }
+  if (!targetUrl) return new Response("TARGET_URL not set", { status: 500 });
 
   const acceptLanguage = getAcceptLanguage(region);
   const start = Date.now();
