@@ -34,10 +34,23 @@ create table if not exists trigger_log (
   triggered_at timestamptz default now()
 );
 
--- Disable RLS — no sensitive data, dashboard reads with publishable key
+-- Scheduled one-off surge events (Workflows F + G)
+create table if not exists scheduled_surges (
+  id           bigserial primary key,
+  scheduled_at timestamptz not null,
+  label        text,
+  status       text default 'pending',  -- pending | fired | cancelled
+  fired_at     timestamptz,
+  created_at   timestamptz default now()
+);
+
+create index if not exists scheduled_surges_status_idx on scheduled_surges (status, scheduled_at);
+
+-- Disable RLS on all tables
 alter table monitor_results disable row level security;
 alter table targets disable row level security;
 alter table trigger_log disable row level security;
+alter table scheduled_surges disable row level security;
 
 -- Add runner_ip column if upgrading existing install
 alter table monitor_results add column if not exists runner_ip text;
