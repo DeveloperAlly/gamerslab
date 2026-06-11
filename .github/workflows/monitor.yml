@@ -2,7 +2,7 @@ name: Geo Monitor
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes — direct fallback, no n8n dependency
+    - cron: '*/5 * * * *'   # every 5 minutes
   workflow_dispatch:
     inputs:
       mode:
@@ -13,9 +13,6 @@ on:
         description: 'comma-separated regions (informational only)'
         default: 'us-east,eu-west,ap-southeast,sa-east,me-south,af-south'
         required: false
-
-env:
-  WORKER_URL: https://geo-monitor-worker.divine-wind-e9a3.workers.dev
 
 jobs:
   monitor:
@@ -39,25 +36,28 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - name: Run monitor check
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright@latest
+          npx playwright install chromium --with-deps
+
+      - name: Run Playwright monitor
+        id: playwright
         env:
           REGION: ${{ matrix.region }}
           MODE: ${{ github.event.inputs.mode || 'standard' }}
+          TARGET_URL: ${{ secrets.TARGET_URL }}
         run: |
-          RESULT=$(curl -s -X GET "$WORKER_URL" \
-            -H "X-Monitor-Region: $REGION" \
-            -H "X-Monitor-Mode: $MODE")
-
-          echo "Result: $RESULT"
-
-          if [ "$MODE" = "surge" ]; then
-            for i in $(seq 1 19); do
-              curl -s "$WORKER_URL" -H "X-Monitor-Region: $REGION" > /dev/null &
-            done
-            wait
-          fi
-
-          echo "MONITOR_RESULT=$RESULT" >> $GITHUB_ENV
+          node .github/scripts/monitor.js
 
       - name: Push to Supabase
         env:
@@ -67,7 +67,7 @@ jobs:
           MODE: ${{ github.event.inputs.mode || 'standard' }}
         run: |
           python3 - <<'EOF'
-          import json, urllib.request, os, time, socket
+          import json, urllib.request, os, time
 
           raw = os.environ.get('MONITOR_RESULT', '{}')
           try:
@@ -75,35 +75,49 @@ jobs:
           except Exception:
             data = {}
 
-          # Capture runner public IP for geo verification
           try:
             runner_ip = urllib.request.urlopen('https://api.ipify.org', timeout=3).read().decode()
           except Exception:
             runner_ip = None
 
           payload = json.dumps({
-            "region": os.environ['REGION'],
-            "status": 1 if data.get('ok') else 0,
-            "ttfb_ms": data.get('ttfb_ms'),
-            "content_language": data.get('content_language'),
+            "region":               os.environ['REGION'],
+            "status":               1 if data.get('ok') else 0,
+            "ttfb_ms":              data.get('ttfb_ms'),
+            "content_language":     data.get('content_language'),
             "accept_language_sent": data.get('accept_language_sent'),
-            "cf_colo": data.get('cf_colo'),
-            "runner_ip": runner_ip,
-            "mode": os.environ.get('MODE', 'standard'),
-            "checked_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            "cf_colo":              data.get('cf_colo'),
+            "runner_ip":            runner_ip,
+            "mode":                 os.environ.get('MODE', 'standard'),
+            "checked_at":           time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            # Playwright-specific fields
+            "page_title":           data.get('page_title'),
+            "game_iframe_loaded":   data.get('game_iframe_loaded'),
+            "js_errors":            json.dumps(data.get('js_errors', [])),
+            "page_blocked":         data.get('page_blocked'),
+            "render_error":         data.get('render_error'),
           }).encode()
 
           req = urllib.request.Request(
             f"{os.environ['SUPABASE_URL']}/rest/v1/monitor_results",
             data=payload,
             headers={
-              'apikey': os.environ['SUPABASE_KEY'],
-              'Authorization': f"Bearer {os.environ['SUPABASE_KEY']}",
-              'Content-Type': 'application/json',
-              'Prefer': 'return=minimal'
+              'apikey':         os.environ['SUPABASE_KEY'],
+              'Authorization':  f"Bearer {os.environ['SUPABASE_KEY']}",
+              'Content-Type':   'application/json',
+              'Prefer':         'return=minimal'
             },
             method='POST'
           )
           urllib.request.urlopen(req)
-          print(f"Pushed: region={os.environ['REGION']} status={data.get('ok')} ttfb={data.get('ttfb_ms')}ms colo={data.get('cf_colo')} ip={runner_ip}")
+          print(f"Pushed: region={os.environ['REGION']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms title={data.get('page_title')} iframe={data.get('game_iframe_loaded')} js_errors={len(data.get('js_errors', []))}")
           EOF
+
+      # Surge: fire 19 additional parallel lightweight checks after the main Playwright run
+      - name: Surge parallel checks
+        if: ${{ github.event.inputs.mode == 'surge' }}
+        env:
+          REGION: ${{ matrix.region }}
+          TARGET_URL: ${{ secrets.TARGET_URL }}
+        run: |
+          node .github/scripts/surge.js
