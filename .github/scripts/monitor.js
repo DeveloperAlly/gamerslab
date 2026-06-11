@@ -2,13 +2,17 @@
  * GamersLab Geo Monitor — Playwright headless browser check
  *
  * CLICK-CHECK BEHAVIOUR:
- * - Tries to find and click the play button using all strategies
- * - After clicking, waits click_check_wait_seconds then checks for login page
- * - If no login page found: RETRIES up to click_check_max_retries times
- *   (re-scans for button, clicks again, checks again)
- * - Only marks click_check_done=true and login_prompt_shown=true when login
- *   page is CONFIRMED via URL change, DOM elements, or iframe
- * - If all retries exhausted without login page: logs full page state for debugging
+ * - Finds and clicks play button using all strategies in parallel
+ * - Retries up to click_check_max_retries times until login page confirmed
+ * - Login confirmation via URL change, DOM elements, iframe, or text
+ *
+ * DWELL CHECK (post-click):
+ * - After login page confirmed, stays on page for dwell_check_seconds_min
+ *   to dwell_check_seconds_max seconds (random, configurable)
+ * - Monitors continuously for: page crashes, JS errors, console errors,
+ *   navigation away from expected domain, blank/white page
+ * - Reports all errors found during dwell period
+ * - Records dwell_crash (bool) and dwell_errors (JSON array) in result
  */
 
 const { chromium } = require('playwright');
@@ -35,7 +39,6 @@ const BLOCK_INDICATORS = [
   'Enable JavaScript and cookies', 'Access denied',
 ];
 
-// Game embed detection
 const EMBED_CSS_SELECTORS = [
   'iframe#game_drop', '.game_frame iframe', '#game_frame iframe',
   '#game_frame', '.game_frame', '.iframe_wrap iframe', '.iframe_wrap',
@@ -47,43 +50,39 @@ const EMBED_SOURCE_MARKERS = [
   'load_iframe_btn', 'Run game', 'Restore game', 'data-iframe',
 ];
 
-// Play button — CSS selectors
 const PLAY_BTN_CSS = [
   'button.load_iframe_btn', '.run_game_btn', '[data-action="load_iframe"]',
   '.play_btn', 'button[class*="load"]', 'button[class*="run"]',
   'button[class*="play"]', 'a[class*="run_game"]', 'a[class*="play"]',
   '.game_frame button', '#game_frame button', '.iframe_wrap button',
 ];
-
-// Play button — text strings (case-insensitive)
 const PLAY_BTN_TEXT = [
   'Run game', 'Play game', 'Play now', 'Launch game', 'Start game',
   'Load game', 'Play in browser', 'Run in browser', 'Restore game', 'Play',
 ];
-
-// Play button — ARIA labels
 const PLAY_BTN_ARIA = [
   '[aria-label*="run" i]', '[aria-label*="play" i]',
   '[aria-label*="launch" i]', '[aria-label*="game" i]',
 ];
 
-// Login confirmation — URL (strongest signal)
 const LOGIN_URL_PATTERNS = [
   'itch.io/login', 'itch.io/register', 'itch.io/user/login',
 ];
-
-// Login confirmation — DOM selectors (strong)
 const LOGIN_DOM_SELECTORS = [
   'form[action*="login"]', 'form[action*="register"]',
   'input[name="username"]', 'input[name="password"]',
   'input[type="password"]', '#login_form', '#register_form',
   '.login_form', '.sign_in_form',
 ];
-
-// Login confirmation — text (weakest, last resort only)
 const LOGIN_TEXT_INDICATORS = [
   'Log in with itch.io', 'Sign in to itch.io', 'Create an itch.io account',
   'Forgot password', 'You need to log in', 'login required',
+];
+
+// Crash/error indicators during dwell
+const CRASH_INDICATORS = [
+  'Aw, Snap!', 'He\'s Dead, Jim', 'Something went wrong',
+  'ERR_', 'chrome-error://', 'about:blank',
 ];
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
@@ -118,22 +117,26 @@ async function fetchConfig() {
   const configMap    = {};
   if (Array.isArray(config)) config.forEach(r => { configMap[r.key] = r.value; });
 
-  const clickCheckPct      = parseInt(configMap['click_check_percentage']   || '30');
-  const clickCheckWaitSecs = parseInt(configMap['click_check_wait_seconds'] || '5');
-  const clickCheckMaxRetry = parseInt(configMap['click_check_max_retries']  || '3');
+  const clickCheckPct       = parseInt(configMap['click_check_percentage']    || '30');
+  const clickCheckWaitSecs  = parseInt(configMap['click_check_wait_seconds']  || '5');
+  const clickCheckMaxRetry  = parseInt(configMap['click_check_max_retries']   || '3');
+  const dwellMinSecs        = parseInt(configMap['dwell_check_seconds_min']   || '30');
+  const dwellMaxSecs        = parseInt(configMap['dwell_check_seconds_max']   || '500');
 
   console.log(`Target: ${targetUrl}`);
   console.log(`Referrers: ${referrerList.map(r => r.name).join(', ') || 'none'}`);
-  console.log(`Click-check: ${clickCheckPct}% | Wait: ${clickCheckWaitSecs}s | Max retries: ${clickCheckMaxRetry}`);
+  console.log(`Click-check: ${clickCheckPct}% | Wait: ${clickCheckWaitSecs}s | Retries: ${clickCheckMaxRetry}`);
+  console.log(`Dwell check: ${dwellMinSecs}s–${dwellMaxSecs}s`);
 
-  return { targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs, clickCheckMaxRetry };
+  return { targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs, clickCheckMaxRetry, dwellMinSecs, dwellMaxSecs };
 }
 
 const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
 const randMs = (min, max) => Math.floor(Math.random() * (max - min)) + min;
+const randSecs = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
-// ── Multi-strategy embed detection ───────────────────────────────────────────
+// ── Game embed detection ──────────────────────────────────────────────────────
 async function detectGameEmbed(page, pageContent) {
   const cssPromise = Promise.any(
     EMBED_CSS_SELECTORS.map(sel =>
@@ -150,7 +153,7 @@ async function detectGameEmbed(page, pageContent) {
   return { found: !!method, method };
 }
 
-// ── Multi-strategy play button finder ────────────────────────────────────────
+// ── Play button finder ────────────────────────────────────────────────────────
 async function findPlayButton(page) {
   for (const sel of PLAY_BTN_CSS) {
     try {
@@ -180,18 +183,28 @@ async function findPlayButton(page) {
       if (el && await el.isVisible()) { console.log(`  Play btn ARIA: ${sel}`); return el; }
     } catch (_) {}
   }
+
+  // Debug: log all visible clickables
+  try {
+    const all = await page.$$eval(
+      'button, a[href], input[type="submit"], [role="button"]',
+      els => els
+        .filter(el => el.offsetParent !== null)
+        .map(el => `${el.tagName}:"${el.textContent?.trim().substring(0, 40)}" class="${el.className?.substring(0, 40)}"`)
+        .slice(0, 20)
+    );
+    console.log(`  Play button NOT FOUND. Visible clickables:\n    ${all.join('\n    ')}`);
+  } catch (_) {}
+
   return null;
 }
 
-// ── Strong login page confirmation ────────────────────────────────────────────
-// Returns { confirmed: bool, method: string, detail: string }
+// ── Login page confirmation ───────────────────────────────────────────────────
 async function confirmLoginPage(page) {
-  // 1. URL change (most reliable)
   const currentUrl = page.url();
   const urlMatch = LOGIN_URL_PATTERNS.find(p => currentUrl.includes(p));
   if (urlMatch) return { confirmed: true, method: 'url', detail: currentUrl };
 
-  // 2. DOM elements (strong)
   for (const sel of LOGIN_DOM_SELECTORS) {
     try {
       const el = await page.$(sel);
@@ -199,7 +212,6 @@ async function confirmLoginPage(page) {
     } catch (_) {}
   }
 
-  // 3. Login iframe (itch.io sometimes embeds login in an iframe)
   try {
     for (const frame of page.frames()) {
       if (LOGIN_URL_PATTERNS.some(p => frame.url().includes(p))) {
@@ -208,19 +220,20 @@ async function confirmLoginPage(page) {
     }
   } catch (_) {}
 
-  // 4. Text indicators (weakest)
   const pageContent = await page.content().catch(() => '');
   const textMatch = LOGIN_TEXT_INDICATORS.find(t =>
     pageContent.toLowerCase().includes(t.toLowerCase())
   );
   if (textMatch) return { confirmed: true, method: 'text', detail: textMatch };
 
+  const title = await page.title().catch(() => '');
+  console.log(`Login NOT confirmed. URL: ${currentUrl} | Title: ${title}`);
+  console.log(`Page excerpt: ${pageContent.substring(0, 500)}`);
+
   return { confirmed: false, method: 'none', detail: `url=${currentUrl}` };
 }
 
 // ── Click-check with retries ──────────────────────────────────────────────────
-// Keeps trying until login is confirmed or retries exhausted.
-// Returns { done: bool, loginShown: bool, attempts: number, finalMethod: string }
 async function runClickCheck(page, waitSecs, maxRetries) {
   let attempts = 0;
 
@@ -231,47 +244,25 @@ async function runClickCheck(page, waitSecs, maxRetries) {
     const btn = await findPlayButton(page);
 
     if (!btn) {
-      // Log all visible clickables to help debug missing button
-      try {
-        const all = await page.$$eval(
-          'button, a[href], input[type="submit"], [role="button"]',
-          els => els
-            .filter(el => el.offsetParent !== null)
-            .map(el => `${el.tagName}:"${el.textContent?.trim().substring(0, 40)}" class="${el.className?.substring(0, 40)}"`)
-            .slice(0, 20)
-        );
-        console.log(`  Play button NOT FOUND on attempt ${attempt}. Visible clickables:\n    ${all.join('\n    ')}`);
-      } catch (_) {}
-
-      if (attempt < maxRetries) {
-        console.log(`  Waiting 2s before retry...`);
-        await sleep(2000);
-        continue;
-      }
+      console.log(`  Button not found on attempt ${attempt}.`);
+      if (attempt < maxRetries) { await sleep(2000); continue; }
       console.log(`  All ${maxRetries} attempts exhausted — button never found.`);
       return { done: false, loginShown: false, attempts, finalMethod: 'button_not_found' };
     }
 
-    // Button found — click it
     try {
       await btn.click();
-      console.log(`  Clicked. Waiting ${waitSecs}s for login page to appear...`);
+      console.log(`  Clicked. Waiting ${waitSecs}s...`);
       await sleep(waitSecs * 1000);
 
       const { confirmed, method, detail } = await confirmLoginPage(page);
       console.log(`  Login confirmed: ${confirmed} | method: ${method} | detail: ${detail}`);
 
-      if (confirmed) {
-        return { done: true, loginShown: true, attempts, finalMethod: method };
-      }
+      if (confirmed) return { done: true, loginShown: true, attempts, finalMethod: method };
 
-      // Not confirmed — log page state and retry
-      console.log(`  Login page NOT confirmed after ${waitSecs}s. Retrying...`);
+      console.log(`  Not confirmed. Retrying...`);
       const title = await page.title().catch(() => '');
-      const url   = page.url();
-      console.log(`  Current page: "${title}" | ${url}`);
-
-      // Scroll and wait a bit more before next attempt
+      console.log(`  Current: "${title}" | ${page.url()}`);
       await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
       await sleep(1000);
 
@@ -281,24 +272,111 @@ async function runClickCheck(page, waitSecs, maxRetries) {
   }
 
   console.log(`  All ${maxRetries} attempts exhausted — login page never confirmed.`);
-  // Final debug: dump full page excerpt
   try {
     const content = await page.content().catch(() => '');
-    console.log(`  Final page excerpt (first 800 chars):\n  ${content.substring(0, 800)}`);
+    console.log(`  Final page (first 800 chars):\n  ${content.substring(0, 800)}`);
   } catch (_) {}
 
   return { done: true, loginShown: false, attempts, finalMethod: 'exhausted' };
 }
 
+// ── Dwell check ───────────────────────────────────────────────────────────────
+// Stays on the page for dwellSecs, polling every 5s for crashes and errors.
+// Returns { crashed: bool, dwellErrors: string[], dwellSecs: number }
+async function runDwellCheck(page, dwellSecs, existingJsErrors) {
+  console.log(`\n=== DWELL CHECK START: staying ${dwellSecs}s, polling every 5s ===`);
+
+  const dwellErrors = [];
+  const startUrl    = page.url();
+  const startTitle  = await page.title().catch(() => '');
+  let crashed       = false;
+  const pollInterval = 5000;
+  const deadline    = Date.now() + dwellSecs * 1000;
+
+  // Count JS errors that accumulate during dwell
+  const dwellJsErrors = [];
+  const errorListener = msg => {
+    if (msg.type() === 'error') {
+      const text = msg.text().substring(0, 300);
+      dwellJsErrors.push(`[console.error] ${text}`);
+    }
+  };
+  const crashListener = err => {
+    dwellJsErrors.push(`[pageerror] ${err.message.substring(0, 300)}`);
+  };
+  page.on('console', errorListener);
+  page.on('pageerror', crashListener);
+
+  while (Date.now() < deadline) {
+    const waitMs = Math.min(pollInterval, deadline - Date.now());
+    if (waitMs > 0) await sleep(waitMs);
+
+    try {
+      // Check page hasn't crashed or navigated away
+      const currentUrl   = page.url();
+      const currentTitle = await page.title().catch(() => '');
+      const content      = await page.content().catch(() => '');
+      const elapsed      = Math.round((Date.now() - (deadline - dwellSecs * 1000)) / 1000);
+
+      // Crash detection
+      const crashMatch = CRASH_INDICATORS.find(i => content.includes(i) || currentTitle.includes(i));
+      if (crashMatch) {
+        crashed = true;
+        dwellErrors.push(`[${elapsed}s] PAGE CRASHED: "${crashMatch}" detected`);
+        console.log(`  [${elapsed}s] CRASH DETECTED: ${crashMatch}`);
+        break;
+      }
+
+      // Unexpected navigation away from itch.io
+      if (currentUrl !== startUrl && !currentUrl.includes('itch.io')) {
+        dwellErrors.push(`[${elapsed}s] Unexpected navigation: ${currentUrl}`);
+        console.log(`  [${elapsed}s] Navigated away: ${currentUrl}`);
+      }
+
+      // Blank/empty page
+      if (content.length < 200 && !content.includes('itch.io')) {
+        dwellErrors.push(`[${elapsed}s] Page appears blank (${content.length} bytes)`);
+        console.log(`  [${elapsed}s] Page appears blank`);
+      }
+
+      console.log(`  [${elapsed}s/${dwellSecs}s] ok — "${currentTitle}" | js_errors_so_far: ${dwellJsErrors.length}`);
+
+    } catch (e) {
+      // Page context destroyed = crashed
+      crashed = true;
+      dwellErrors.push(`Page context destroyed: ${e.message.substring(0, 100)}`);
+      console.log(`  Page context destroyed — likely crashed: ${e.message.substring(0, 100)}`);
+      break;
+    }
+  }
+
+  page.off('console', errorListener);
+  page.off('pageerror', crashListener);
+
+  // Add all JS errors accumulated during dwell
+  if (dwellJsErrors.length > 0) {
+    dwellErrors.push(...dwellJsErrors.slice(0, 20));
+    console.log(`  Dwell JS errors: ${dwellJsErrors.length}`);
+  }
+
+  console.log(`=== DWELL CHECK END: crashed=${crashed} errors=${dwellErrors.length} ===\n`);
+  return { crashed, dwellErrors, dwellSecs };
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function run() {
-  const { targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs, clickCheckMaxRetry } = await fetchConfig();
+  const {
+    targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs,
+    clickCheckMaxRetry, dwellMinSecs, dwellMaxSecs,
+  } = await fetchConfig();
+
   const chosenReferrer = referrerList.length > 0 ? pick(referrerList) : null;
   const acceptLanguage = ACCEPT_LANGUAGE[REGION] || 'en-US,en;q=0.9';
   const doClickCheck   = Math.random() * 100 < clickCheckPct;
+  const dwellSecs      = randSecs(dwellMinSecs, dwellMaxSecs);
 
-  console.log(`Region: ${REGION} | Referrer: ${chosenReferrer?.url || 'none'} | Do click-check: ${doClickCheck}`);
+  console.log(`Region: ${REGION} | Referrer: ${chosenReferrer?.url || 'none'} | Click-check: ${doClickCheck} | Dwell: ${dwellSecs}s`);
 
   const result = {
     region: REGION, ok: false, ttfb_ms: null,
@@ -307,6 +385,7 @@ async function run() {
     content_language: null, accept_language_sent: acceptLanguage, cf_colo: null,
     referrer_used: chosenReferrer?.url || null,
     click_check_done: false, login_prompt_shown: null,
+    dwell_crash: null, dwell_errors: null, dwell_seconds: null,
   };
 
   let browser;
@@ -403,11 +482,22 @@ async function run() {
           );
           result.click_check_done   = done;
           result.login_prompt_shown = loginShown;
-          console.log(`=== CLICK-CHECK END: done=${done} login=${loginShown} attempts=${attempts} method=${finalMethod} ===\n`);
-        }
+          console.log(`=== CLICK-CHECK END: done=${done} login=${loginShown} attempts=${attempts} method=${finalMethod} ===`);
 
-        // ── Step 5: Dwell ─────────────────────────────────────────────────────
-        await sleep(randMs(3000, 6000));
+          // ── Step 5: Dwell check (after click, on login page or game page) ───
+          // Run regardless of whether login was confirmed — we want to know
+          // if the page crashes or errors during a real user dwell session.
+          const { crashed, dwellErrors, dwellSecs: actualDwell } = await runDwellCheck(
+            page, dwellSecs, jsErrors
+          );
+          result.dwell_crash   = crashed;
+          result.dwell_errors  = JSON.stringify(dwellErrors.slice(0, 20));
+          result.dwell_seconds = actualDwell;
+
+        } else {
+          // Non-click-check runs: short dwell on game page only (3-6s)
+          await sleep(randMs(3000, 6000));
+        }
 
         result.js_errors = jsErrors.slice(0, 10);
         const httpOk = !responseStatus || (responseStatus >= 200 && responseStatus < 400);
