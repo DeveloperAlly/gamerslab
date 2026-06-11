@@ -1,24 +1,14 @@
 /**
  * GamersLab Geo Monitor — Playwright headless browser check
  *
- * Fetches config from Supabase at runtime:
- *   - active target URL
- *   - enabled referrer list
- *   - click_check_percentage (what % of runs click "Run game" to verify login prompt)
- *   - click_check_wait_seconds (how long to wait after clicking before checking — 0-100s)
- *
- * Visit flow:
- *   1. Navigate to referrer (randomly chosen from enabled list)
- *   2. Dwell 2–4s on referrer
- *   3. Navigate to target URL (Referer header set naturally by browser)
- *   4. Verify page loads and has expected content
- *   5. Detect game embed (multi-strategy, independent)
- *   6. If selected by click_check_percentage:
- *      a. Find play button using all strategies in parallel
- *      b. Click it
- *      c. Wait click_check_wait_seconds
- *      d. Confirm login page is ACTUALLY present (URL change + DOM elements + text)
- *   7. Dwell 3–6s
+ * CLICK-CHECK BEHAVIOUR:
+ * - Tries to find and click the play button using all strategies
+ * - After clicking, waits click_check_wait_seconds then checks for login page
+ * - If no login page found: RETRIES up to click_check_max_retries times
+ *   (re-scans for button, clicks again, checks again)
+ * - Only marks click_check_done=true and login_prompt_shown=true when login
+ *   page is CONFIRMED via URL change, DOM elements, or iframe
+ * - If all retries exhausted without login page: logs full page state for debugging
  */
 
 const { chromium } = require('playwright');
@@ -45,15 +35,13 @@ const BLOCK_INDICATORS = [
   'Enable JavaScript and cookies', 'Access denied',
 ];
 
-// Game embed detection — CSS selectors
+// Game embed detection
 const EMBED_CSS_SELECTORS = [
   'iframe#game_drop', '.game_frame iframe', '#game_frame iframe',
   '#game_frame', '.game_frame', '.iframe_wrap iframe', '.iframe_wrap',
   '.html_embed_widget iframe', '.html_embed_widget',
   'div[class*="game_frame"]', 'div[class*="game_drop"]', 'div[id*="game"]',
 ];
-
-// Game embed detection — page source markers (instant, no timeout)
 const EMBED_SOURCE_MARKERS = [
   'game_drop', 'game_frame', 'iframe_wrap', 'html_embed_widget',
   'load_iframe_btn', 'Run game', 'Restore game', 'data-iframe',
@@ -67,11 +55,10 @@ const PLAY_BTN_CSS = [
   '.game_frame button', '#game_frame button', '.iframe_wrap button',
 ];
 
-// Play button — text strings (case-insensitive partial match)
+// Play button — text strings (case-insensitive)
 const PLAY_BTN_TEXT = [
-  'Run game', 'Play game', 'Play now', 'Launch game',
-  'Start game', 'Load game', 'Play in browser', 'Run in browser',
-  'Restore game', 'Play',
+  'Run game', 'Play game', 'Play now', 'Launch game', 'Start game',
+  'Load game', 'Play in browser', 'Run in browser', 'Restore game', 'Play',
 ];
 
 // Play button — ARIA labels
@@ -80,13 +67,12 @@ const PLAY_BTN_ARIA = [
   '[aria-label*="launch" i]', '[aria-label*="game" i]',
 ];
 
-// Login confirmation — STRONG checks (URL-based)
-// If the URL changes to itch.io/login after clicking, that's definitive
+// Login confirmation — URL (strongest signal)
 const LOGIN_URL_PATTERNS = [
   'itch.io/login', 'itch.io/register', 'itch.io/user/login',
 ];
 
-// Login confirmation — DOM element selectors that only appear on the login page
+// Login confirmation — DOM selectors (strong)
 const LOGIN_DOM_SELECTORS = [
   'form[action*="login"]', 'form[action*="register"]',
   'input[name="username"]', 'input[name="password"]',
@@ -94,11 +80,10 @@ const LOGIN_DOM_SELECTORS = [
   '.login_form', '.sign_in_form',
 ];
 
-// Login confirmation — text indicators (weaker, used as fallback)
+// Login confirmation — text (weakest, last resort only)
 const LOGIN_TEXT_INDICATORS = [
   'Log in with itch.io', 'Sign in to itch.io', 'Create an itch.io account',
-  'itch.io account', 'Forgot password', 'Log in', 'Sign in',
-  'You need to log in', 'login required',
+  'Forgot password', 'You need to log in', 'login required',
 ];
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
@@ -128,18 +113,20 @@ async function fetchConfig() {
     sbGet('/rest/v1/monitor_config?select=key,value'),
   ]);
 
-  const targetUrl     = (Array.isArray(targets) && targets[0]?.url) || FALLBACK_TARGET;
-  const referrerList  = Array.isArray(referrers) ? referrers : [];
-  const configMap     = {};
+  const targetUrl    = (Array.isArray(targets) && targets[0]?.url) || FALLBACK_TARGET;
+  const referrerList = Array.isArray(referrers) ? referrers : [];
+  const configMap    = {};
   if (Array.isArray(config)) config.forEach(r => { configMap[r.key] = r.value; });
-  const clickCheckPct      = parseInt(configMap['click_check_percentage']    || '30');
-  const clickCheckWaitSecs = parseInt(configMap['click_check_wait_seconds']  || '5');
+
+  const clickCheckPct      = parseInt(configMap['click_check_percentage']   || '30');
+  const clickCheckWaitSecs = parseInt(configMap['click_check_wait_seconds'] || '5');
+  const clickCheckMaxRetry = parseInt(configMap['click_check_max_retries']  || '3');
 
   console.log(`Target: ${targetUrl}`);
   console.log(`Referrers: ${referrerList.map(r => r.name).join(', ') || 'none'}`);
-  console.log(`Click-check: ${clickCheckPct}% | Wait after click: ${clickCheckWaitSecs}s`);
+  console.log(`Click-check: ${clickCheckPct}% | Wait: ${clickCheckWaitSecs}s | Max retries: ${clickCheckMaxRetry}`);
 
-  return { targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs };
+  return { targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs, clickCheckMaxRetry };
 }
 
 const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
@@ -159,118 +146,159 @@ async function detectGameEmbed(page, pageContent) {
 
   const [cssResult, sourceResult] = await Promise.all([cssPromise, sourcePromise]);
   const method = cssResult || sourceResult;
-
-  console.log(method ? `Embed found: ${method}` : 'Embed NOT found by any strategy');
+  console.log(method ? `Embed found: ${method}` : 'Embed NOT found');
   return { found: !!method, method };
 }
 
 // ── Multi-strategy play button finder ────────────────────────────────────────
 async function findPlayButton(page) {
-  // CSS selectors
   for (const sel of PLAY_BTN_CSS) {
     try {
       const el = await page.$(sel);
-      if (el && await el.isVisible()) { console.log(`Play btn CSS: ${sel}`); return el; }
+      if (el && await el.isVisible()) { console.log(`  Play btn CSS: ${sel}`); return el; }
     } catch (_) {}
   }
-
-  // Text-based (role button + generic locator)
   for (const text of PLAY_BTN_TEXT) {
     try {
       const el = page.getByRole('button', { name: new RegExp(text, 'i') });
       if (await el.isVisible({ timeout: 1000 }).catch(() => false)) {
-        console.log(`Play btn role text: "${text}"`);
+        console.log(`  Play btn role: "${text}"`);
         return await el.elementHandle();
       }
     } catch (_) {}
     try {
       const el = page.locator(`text=${text}`).first();
       if (await el.isVisible({ timeout: 1000 }).catch(() => false)) {
-        console.log(`Play btn text locator: "${text}"`);
+        console.log(`  Play btn text: "${text}"`);
         return await el.elementHandle();
       }
     } catch (_) {}
   }
-
-  // ARIA labels
   for (const sel of PLAY_BTN_ARIA) {
     try {
       const el = await page.$(sel);
-      if (el && await el.isVisible()) { console.log(`Play btn ARIA: ${sel}`); return el; }
+      if (el && await el.isVisible()) { console.log(`  Play btn ARIA: ${sel}`); return el; }
     } catch (_) {}
   }
-
-  // Log all visible clickables to help debug
-  try {
-    const all = await page.$$eval(
-      'button, a[href], input[type="submit"], [role="button"]',
-      els => els
-        .filter(el => el.offsetParent !== null)
-        .map(el => `${el.tagName}:"${el.textContent?.trim().substring(0, 40)}" .${el.className?.substring(0, 30)}`)
-        .slice(0, 20)
-    );
-    console.log(`Play button NOT FOUND. All visible clickables:\n  ${all.join('\n  ')}`);
-  } catch (_) {}
-
   return null;
 }
 
-// ── Strong login confirmation ─────────────────────────────────────────────────
+// ── Strong login page confirmation ────────────────────────────────────────────
 // Returns { confirmed: bool, method: string, detail: string }
 async function confirmLoginPage(page) {
-  // Method 1: URL changed to a login URL (most reliable)
+  // 1. URL change (most reliable)
   const currentUrl = page.url();
   const urlMatch = LOGIN_URL_PATTERNS.find(p => currentUrl.includes(p));
-  if (urlMatch) {
-    return { confirmed: true, method: 'url', detail: currentUrl };
-  }
+  if (urlMatch) return { confirmed: true, method: 'url', detail: currentUrl };
 
-  // Method 2: Login DOM elements present (strong)
+  // 2. DOM elements (strong)
   for (const sel of LOGIN_DOM_SELECTORS) {
     try {
       const el = await page.$(sel);
-      if (el && await el.isVisible()) {
-        return { confirmed: true, method: 'dom', detail: sel };
-      }
+      if (el && await el.isVisible()) return { confirmed: true, method: 'dom', detail: sel };
     } catch (_) {}
   }
 
-  // Method 3: Login iframe present (itch.io sometimes uses an iframe for login)
+  // 3. Login iframe (itch.io sometimes embeds login in an iframe)
   try {
-    const frames = page.frames();
-    for (const frame of frames) {
+    for (const frame of page.frames()) {
       if (LOGIN_URL_PATTERNS.some(p => frame.url().includes(p))) {
         return { confirmed: true, method: 'iframe', detail: frame.url() };
       }
     }
   } catch (_) {}
 
-  // Method 4: Text indicators in page content (weakest — last resort)
+  // 4. Text indicators (weakest)
   const pageContent = await page.content().catch(() => '');
   const textMatch = LOGIN_TEXT_INDICATORS.find(t =>
     pageContent.toLowerCase().includes(t.toLowerCase())
   );
-  if (textMatch) {
-    return { confirmed: true, method: 'text', detail: textMatch };
+  if (textMatch) return { confirmed: true, method: 'text', detail: textMatch };
+
+  return { confirmed: false, method: 'none', detail: `url=${currentUrl}` };
+}
+
+// ── Click-check with retries ──────────────────────────────────────────────────
+// Keeps trying until login is confirmed or retries exhausted.
+// Returns { done: bool, loginShown: bool, attempts: number, finalMethod: string }
+async function runClickCheck(page, waitSecs, maxRetries) {
+  let attempts = 0;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    attempts = attempt;
+    console.log(`\nClick-check attempt ${attempt}/${maxRetries}:`);
+
+    const btn = await findPlayButton(page);
+
+    if (!btn) {
+      // Log all visible clickables to help debug missing button
+      try {
+        const all = await page.$$eval(
+          'button, a[href], input[type="submit"], [role="button"]',
+          els => els
+            .filter(el => el.offsetParent !== null)
+            .map(el => `${el.tagName}:"${el.textContent?.trim().substring(0, 40)}" class="${el.className?.substring(0, 40)}"`)
+            .slice(0, 20)
+        );
+        console.log(`  Play button NOT FOUND on attempt ${attempt}. Visible clickables:\n    ${all.join('\n    ')}`);
+      } catch (_) {}
+
+      if (attempt < maxRetries) {
+        console.log(`  Waiting 2s before retry...`);
+        await sleep(2000);
+        continue;
+      }
+      console.log(`  All ${maxRetries} attempts exhausted — button never found.`);
+      return { done: false, loginShown: false, attempts, finalMethod: 'button_not_found' };
+    }
+
+    // Button found — click it
+    try {
+      await btn.click();
+      console.log(`  Clicked. Waiting ${waitSecs}s for login page to appear...`);
+      await sleep(waitSecs * 1000);
+
+      const { confirmed, method, detail } = await confirmLoginPage(page);
+      console.log(`  Login confirmed: ${confirmed} | method: ${method} | detail: ${detail}`);
+
+      if (confirmed) {
+        return { done: true, loginShown: true, attempts, finalMethod: method };
+      }
+
+      // Not confirmed — log page state and retry
+      console.log(`  Login page NOT confirmed after ${waitSecs}s. Retrying...`);
+      const title = await page.title().catch(() => '');
+      const url   = page.url();
+      console.log(`  Current page: "${title}" | ${url}`);
+
+      // Scroll and wait a bit more before next attempt
+      await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+      await sleep(1000);
+
+    } catch (e) {
+      console.log(`  Click error: ${e.message.substring(0, 100)}`);
+    }
   }
 
-  // Not found — log current URL and page title to help diagnose
-  const title = await page.title().catch(() => '');
-  console.log(`Login NOT confirmed. Current URL: ${currentUrl} | Title: ${title}`);
-  console.log(`Page excerpt: ${pageContent.substring(0, 500)}`);
+  console.log(`  All ${maxRetries} attempts exhausted — login page never confirmed.`);
+  // Final debug: dump full page excerpt
+  try {
+    const content = await page.content().catch(() => '');
+    console.log(`  Final page excerpt (first 800 chars):\n  ${content.substring(0, 800)}`);
+  } catch (_) {}
 
-  return { confirmed: false, method: 'none', detail: `url=${currentUrl} title=${title}` };
+  return { done: true, loginShown: false, attempts, finalMethod: 'exhausted' };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function run() {
-  const { targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs } = await fetchConfig();
+  const { targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs, clickCheckMaxRetry } = await fetchConfig();
   const chosenReferrer = referrerList.length > 0 ? pick(referrerList) : null;
   const acceptLanguage = ACCEPT_LANGUAGE[REGION] || 'en-US,en;q=0.9';
   const doClickCheck   = Math.random() * 100 < clickCheckPct;
 
-  console.log(`Region: ${REGION} | Referrer: ${chosenReferrer?.url || 'none'} | Click-check: ${doClickCheck}`);
+  console.log(`Region: ${REGION} | Referrer: ${chosenReferrer?.url || 'none'} | Do click-check: ${doClickCheck}`);
 
   const result = {
     region: REGION, ok: false, ttfb_ms: null,
@@ -363,35 +391,19 @@ async function run() {
 
         if (!hasExpectedContent) result.render_error = 'Expected content not found';
 
-        // ── Step 3: Detect game embed (multi-strategy, independent) ───────────
+        // ── Step 3: Game embed detection ──────────────────────────────────────
         const { found: embedFound } = await detectGameEmbed(page, pageContent);
         result.game_iframe_loaded = embedFound;
 
-        // ── Step 4: Click-check (fully independent of embed detection) ────────
+        // ── Step 4: Click-check with retries ──────────────────────────────────
         if (doClickCheck) {
-          result.click_check_done = true;
-          const playBtn = await findPlayButton(page);
-
-          if (playBtn) {
-            try {
-              await playBtn.click();
-              console.log(`Clicked play button. Waiting ${clickCheckWaitSecs}s for response...`);
-
-              // Configurable wait (0-100s) — allows slow-loading login pages
-              await sleep(clickCheckWaitSecs * 1000);
-
-              // Strong multi-method login confirmation
-              const { confirmed, method, detail } = await confirmLoginPage(page);
-              result.login_prompt_shown = confirmed;
-              console.log(`Login confirmed: ${confirmed} | method: ${method} | detail: ${detail}`);
-
-            } catch (e) {
-              console.log(`Click-check error: ${e.message.substring(0, 100)}`);
-              result.click_check_done = false;
-            }
-          } else {
-            result.click_check_done = false;
-          }
+          console.log('\n=== CLICK-CHECK START ===');
+          const { done, loginShown, attempts, finalMethod } = await runClickCheck(
+            page, clickCheckWaitSecs, clickCheckMaxRetry
+          );
+          result.click_check_done   = done;
+          result.login_prompt_shown = loginShown;
+          console.log(`=== CLICK-CHECK END: done=${done} login=${loginShown} attempts=${attempts} method=${finalMethod} ===\n`);
         }
 
         // ── Step 5: Dwell ─────────────────────────────────────────────────────
