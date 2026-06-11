@@ -51,9 +51,9 @@ function Status({ status }) {
   )
 }
 
-function Input({ value, onChange, placeholder, type = 'text' }) {
+function Input({ value, onChange, placeholder }) {
   return (
-    <input type={type} value={value} onChange={onChange} placeholder={placeholder}
+    <input value={value} onChange={onChange} placeholder={placeholder}
       style={{ width: '100%', padding: '8px 11px', borderRadius: 7, border: '0.5px solid var(--b2)', background: 'var(--s2)', color: 'var(--tx)', fontSize: 11, outline: 'none', transition: 'border-color .15s' }}
       onFocus={e => e.target.style.borderColor = 'var(--acc)'}
       onBlur={e => e.target.style.borderColor = 'var(--b2)'}
@@ -69,6 +69,14 @@ const INTERVAL_OPTIONS = [
   { label: 'Every hour', value: 60 },
 ]
 
+const SURGE_INTERVAL_OPTIONS = [
+  { label: 'Every 1 hour', value: 60 },
+  { label: 'Every 2 hours', value: 120 },
+  { label: 'Every 4 hours', value: 240 },
+  { label: 'Every 6 hours', value: 360 },
+  { label: 'Every 12 hours', value: 720 },
+]
+
 export default function ControlPage() {
   const [triggerStatus, setTriggerStatus] = useState(null)
   const [surgeStatus, setSurgeStatus] = useState(null)
@@ -82,12 +90,16 @@ export default function ControlPage() {
   const [notifyEveryRun, setNotifyEveryRun] = useState(false)
   const [notifySurge, setNotifySurge] = useState(true)
 
-  // Live n8n schedule state
+  // Standard schedule (Workflow A)
   const [workflowActive, setWorkflowActive] = useState(null)
   const [intervalMinutes, setIntervalMinutes] = useState(5)
   const [scheduleLoading, setScheduleLoading] = useState(true)
   const [scheduleStatus, setScheduleStatus] = useState(null)
   const [toggleLoading, setToggleLoading] = useState(false)
+
+  // Surge schedule (Workflow E) — UI state only, controlled in n8n directly
+  const [surgeScheduleActive, setSurgeScheduleActive] = useState(true)
+  const [surgeIntervalMinutes, setSurgeIntervalMinutes] = useState(120)
 
   useEffect(() => {
     api.activeTarget().then(t => { setActiveTarget(t); setTargetUrl(t?.url || ''); setTargetName(t?.name || '') }).catch(() => {})
@@ -151,14 +163,17 @@ export default function ControlPage() {
     } catch (e) { setDiscordStatus({ type: 'error', msg: e.message }) }
   }
 
+  const selectStyle = { fontSize: 11, padding: '7px 10px', borderRadius: 6, border: '0.5px solid var(--b2)', background: 'var(--s1)', color: 'var(--tx)', outline: 'none', width: '100%' }
+
   return (
     <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, animation: 'fadeIn .2s ease', alignItems: 'start' }}>
 
       {/* LEFT */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
+        {/* triggers */}
         <Card>
-          <Label>triggers</Label>
+          <Label>manual triggers</Label>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500 }}>Standard check</div>
@@ -178,45 +193,60 @@ export default function ControlPage() {
           <Status status={surgeStatus} />
         </Card>
 
+        {/* standard schedule */}
         <Card>
-          <Label>schedule</Label>
+          <Label>standard check schedule</Label>
           <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 500 }}>Random interval scheduler</div>
+                <div style={{ fontSize: 12, fontWeight: 500 }}>Random interval — n8n Workflow A</div>
                 <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>
-                  {scheduleLoading ? 'Loading status…' : workflowActive === null ? 'Status unavailable' : workflowActive ? `Active · every ${intervalMinutes} min · ~30% fire rate` : 'Paused'}
+                  {scheduleLoading ? 'Loading…' : workflowActive === null ? 'Status unavailable' : workflowActive ? `Active · every ${intervalMinutes} min · ~30% fire rate` : 'Paused — activate in n8n'}
                 </div>
               </div>
               <Toggle on={workflowActive === true} onChange={toggleWorkflow} loading={toggleLoading} disabled={scheduleLoading || workflowActive === null} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <select value={intervalMinutes} onChange={e => setIntervalMinutes(parseInt(e.target.value))}
-                style={{ flex: 1, fontSize: 11, padding: '7px 10px', borderRadius: 6, border: '0.5px solid var(--b2)', background: 'var(--s1)', color: 'var(--tx)', outline: 'none' }}>
+              <select value={intervalMinutes} onChange={e => setIntervalMinutes(parseInt(e.target.value))} style={{ ...selectStyle, flex: 1 }}>
                 {INTERVAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <select style={{ flex: 1, fontSize: 11, padding: '7px 10px', borderRadius: 6, border: '0.5px solid var(--b2)', background: 'var(--s1)', color: 'var(--tx)', outline: 'none' }}>
-                <option>All 6 regions</option>
-                <option>US + EU only</option>
-                <option>APAC + SA + ME + AF</option>
               </select>
               <Btn onClick={saveSchedule} variant="primary">Save</Btn>
             </div>
           </div>
-          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 500 }}>Campaign surge</div>
-              <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>Triggered via button above or POST /webhook/surge</div>
-            </div>
-            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--green)' }}>always on</div>
-          </div>
           <Status status={scheduleStatus} />
         </Card>
+
+        {/* surge schedule */}
+        <Card>
+          <Label>surge schedule</Label>
+          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 500 }}>Automated surge — n8n Workflow E</div>
+                <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>
+                  {surgeScheduleActive ? `Active · ${SURGE_INTERVAL_OPTIONS.find(o => o.value === surgeIntervalMinutes)?.label || 'every 2 hours'} · 50% random gate` : 'Paused'}
+                </div>
+              </div>
+              <Toggle on={surgeScheduleActive} onChange={setSurgeScheduleActive} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select value={surgeIntervalMinutes} onChange={e => setSurgeIntervalMinutes(parseInt(e.target.value))} style={{ ...selectStyle, flex: 1 }}>
+                {SURGE_INTERVAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <Btn variant="surge" onClick={() => {}}>Save</Btn>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--hi)', fontFamily: 'var(--mono)', marginTop: 8 }}>
+              fires on average every {surgeIntervalMinutes * 2} min · Discord notified on each fire · runs overnight automatically
+            </div>
+          </div>
+        </Card>
+
       </div>
 
       {/* RIGHT */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
+        {/* target URL */}
         <Card>
           <Label>monitored target</Label>
           {activeTarget && (
@@ -260,6 +290,7 @@ export default function ControlPage() {
           )}
         </Card>
 
+        {/* Discord */}
         <Card>
           <Label>discord alerts</Label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(88,101,242,.07)', border: '0.5px solid rgba(88,101,242,.2)', borderRadius: 8, marginBottom: 12 }}>
@@ -285,6 +316,7 @@ export default function ControlPage() {
           <Btn onClick={testDiscord} fullWidth>Send test message to Discord</Btn>
           <Status status={discordStatus} />
         </Card>
+
       </div>
     </div>
   )
