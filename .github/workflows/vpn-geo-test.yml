@@ -3,7 +3,6 @@ name: VPN Geo Test
 # Manual trigger only — does NOT affect monitor.yml
 # Tests every WireGuard config in /proton/ sequentially
 # Uses multiple IP check services with fallback to avoid rate limiting
-# Adds delay between checks to prevent 429s
 
 on:
   workflow_dispatch:
@@ -16,8 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install WireGuard
-        run: sudo apt-get install -y wireguard resolvconf
+      - name: Install WireGuard tools
+        # ubuntu-latest has WireGuard built into the kernel already
+        # Only need the userspace tools (wg, wg-quick) — much faster than full wireguard+resolvconf
+        # DEBIAN_FRONTEND=noninteractive prevents apt hanging on interactive prompts
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wireguard-tools openresolv
 
       - name: Test all configs
         run: |
@@ -27,30 +30,27 @@ jobs:
           FAIL=0
           RESULTS=""
 
-          # Get country from IP using multiple services with fallback
+          # Get country from IP — tries multiple services with fallback to avoid rate limits
           get_country() {
             local IP="$1"
             local COUNTRY=""
 
-            # Try ipapi.co first (no key needed, generous limit)
+            # Try ipapi.co first (generous free limit)
             COUNTRY=$(curl -s --max-time 8 "https://ipapi.co/${IP}/country/" 2>/dev/null | tr -d '[:space:]')
             if [[ ${#COUNTRY} -eq 2 && "$COUNTRY" =~ ^[A-Z]{2}$ ]]; then
-              echo "$COUNTRY"
-              return
+              echo "$COUNTRY"; return
             fi
 
-            # Fallback: ip-api.com (no key, 45 req/min free)
+            # Fallback: ip-api.com (45 req/min free, no key)
             COUNTRY=$(curl -s --max-time 8 "http://ip-api.com/line/${IP}?fields=countryCode" 2>/dev/null | tr -d '[:space:]')
             if [[ ${#COUNTRY} -eq 2 && "$COUNTRY" =~ ^[A-Z]{2}$ ]]; then
-              echo "$COUNTRY"
-              return
+              echo "$COUNTRY"; return
             fi
 
             # Fallback: ipwho.is
             COUNTRY=$(curl -s --max-time 8 "https://ipwho.is/${IP}" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('country_code',''))" 2>/dev/null | tr -d '[:space:]')
             if [[ ${#COUNTRY} -eq 2 && "$COUNTRY" =~ ^[A-Z]{2}$ ]]; then
-              echo "$COUNTRY"
-              return
+              echo "$COUNTRY"; return
             fi
 
             echo "UNKNOWN"
@@ -59,7 +59,7 @@ jobs:
           for CONF in proton/wg-*.conf; do
             BASENAME=$(basename "$CONF")
 
-            # Skip files with spaces in name
+            # Skip files with spaces in name — wg-quick can't handle them
             if [[ "$BASENAME" == *" "* ]]; then
               echo "⚠️  SKIP $BASENAME — filename contains spaces"
               RESULTS="$RESULTS\n⚠️  SKIP: $BASENAME (spaces in filename)"
@@ -88,7 +88,7 @@ jobs:
 
             sleep 3
 
-            # Get the outbound IP
+            # Get outbound IP
             ACTUAL_IP=$(curl -s --max-time 8 https://ipapi.co/ip/ 2>/dev/null | tr -d '[:space:]')
             if [[ -z "$ACTUAL_IP" ]]; then
               ACTUAL_IP=$(curl -s --max-time 8 https://api.ipify.org 2>/dev/null | tr -d '[:space:]')
@@ -112,7 +112,7 @@ jobs:
             sudo wg-quick down wg0 2>&1 || true
             sudo rm -f /etc/wireguard/wg0.conf
 
-            # Wait between checks to avoid rate limiting
+            # Brief pause between configs to avoid rate limiting on IP lookup APIs
             sleep 4
           done
 
