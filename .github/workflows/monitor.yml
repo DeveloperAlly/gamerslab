@@ -35,6 +35,9 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
 
+    # Dwell check can run up to 500s — set generous timeout
+    timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4.2.2
@@ -97,6 +100,11 @@ jobs:
             "page_blocked":         data.get('page_blocked'),
             "render_error":         data.get('render_error'),
             "referrer_used":        data.get('referrer_used'),
+            "click_check_done":     data.get('click_check_done'),
+            "login_prompt_shown":   data.get('login_prompt_shown'),
+            "dwell_crash":          data.get('dwell_crash'),
+            "dwell_errors":         data.get('dwell_errors'),
+            "dwell_seconds":        data.get('dwell_seconds'),
           }).encode()
 
           req = urllib.request.Request(
@@ -111,7 +119,7 @@ jobs:
             method='POST'
           )
           urllib.request.urlopen(req)
-          print(f"Pushed: region={os.environ['REGION']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms iframe={data.get('game_iframe_loaded')} referrer={data.get('referrer_used')}")
+          print(f"Pushed: region={os.environ['REGION']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms iframe={data.get('game_iframe_loaded')} login={data.get('login_prompt_shown')} dwell={data.get('dwell_seconds')}s dwell_crash={data.get('dwell_crash')} dwell_errors={len(json.loads(data.get('dwell_errors') or '[]'))}")
           EOF
 
       - name: Surge parallel checks
