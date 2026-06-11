@@ -11,6 +11,12 @@ create table if not exists monitor_results (
   accept_language_sent text,
   cf_colo              text,
   runner_ip            text,
+  -- Playwright fields (added in v2)
+  page_title           text,
+  game_iframe_loaded   boolean,
+  js_errors            text,    -- JSON array of error strings, capped at 10
+  page_blocked         boolean,
+  render_error         text,
   checked_at           timestamptz default now()
 );
 
@@ -52,8 +58,13 @@ alter table targets disable row level security;
 alter table trigger_log disable row level security;
 alter table scheduled_surges disable row level security;
 
--- Add runner_ip column if upgrading existing install
-alter table monitor_results add column if not exists runner_ip text;
+-- Migration: add new columns to existing installs
+alter table monitor_results add column if not exists runner_ip          text;
+alter table monitor_results add column if not exists page_title         text;
+alter table monitor_results add column if not exists game_iframe_loaded boolean;
+alter table monitor_results add column if not exists js_errors          text;
+alter table monitor_results add column if not exists page_blocked       boolean;
+alter table monitor_results add column if not exists render_error       text;
 
 -- Seed initial target
 insert into targets (url, name, active)
