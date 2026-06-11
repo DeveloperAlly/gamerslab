@@ -55,6 +55,8 @@ jobs:
           REGION: ${{ matrix.region }}
           MODE: ${{ github.event.inputs.mode || 'standard' }}
           TARGET_URL: ${{ secrets.TARGET_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           node .github/scripts/monitor.js
 
@@ -94,6 +96,7 @@ jobs:
             "js_errors":            json.dumps(data.get('js_errors', [])),
             "page_blocked":         data.get('page_blocked'),
             "render_error":         data.get('render_error'),
+            "referrer_used":        data.get('referrer_used'),
           }).encode()
 
           req = urllib.request.Request(
@@ -108,7 +111,7 @@ jobs:
             method='POST'
           )
           urllib.request.urlopen(req)
-          print(f"Pushed: region={os.environ['REGION']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms title={data.get('page_title')} iframe={data.get('game_iframe_loaded')} js_errors={len(data.get('js_errors', []))}")
+          print(f"Pushed: region={os.environ['REGION']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms iframe={data.get('game_iframe_loaded')} referrer={data.get('referrer_used')}")
           EOF
 
       - name: Surge parallel checks
@@ -116,5 +119,7 @@ jobs:
         env:
           REGION: ${{ matrix.region }}
           TARGET_URL: ${{ secrets.TARGET_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           node .github/scripts/surge.js

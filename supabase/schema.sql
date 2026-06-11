@@ -11,12 +11,13 @@ create table if not exists monitor_results (
   accept_language_sent text,
   cf_colo              text,
   runner_ip            text,
-  -- Playwright fields (added in v2)
+  -- Playwright fields
   page_title           text,
   game_iframe_loaded   boolean,
   js_errors            text,    -- JSON array of error strings, capped at 10
   page_blocked         boolean,
   render_error         text,
+  referrer_used        text,    -- which referrer URL was navigated from
   checked_at           timestamptz default now()
 );
 
@@ -40,6 +41,17 @@ create table if not exists trigger_log (
   triggered_at timestamptz default now()
 );
 
+-- Referrers — pages to visit before navigating to target (simulates real traffic sources)
+create table if not exists referrers (
+  id         bigserial primary key,
+  url        text not null,
+  name       text,
+  enabled    boolean default true,
+  created_at timestamptz default now()
+);
+
+create index if not exists referrers_enabled_idx on referrers (enabled);
+
 -- Scheduled one-off surge events (Workflows F + G)
 create table if not exists scheduled_surges (
   id           bigserial primary key,
@@ -53,20 +65,29 @@ create table if not exists scheduled_surges (
 create index if not exists scheduled_surges_status_idx on scheduled_surges (status, scheduled_at);
 
 -- Disable RLS on all tables
-alter table monitor_results disable row level security;
-alter table targets disable row level security;
-alter table trigger_log disable row level security;
+alter table monitor_results  disable row level security;
+alter table targets          disable row level security;
+alter table trigger_log      disable row level security;
+alter table referrers        disable row level security;
 alter table scheduled_surges disable row level security;
 
--- Migration: add new columns to existing installs
+-- Migration: add columns to existing installs
 alter table monitor_results add column if not exists runner_ip          text;
 alter table monitor_results add column if not exists page_title         text;
 alter table monitor_results add column if not exists game_iframe_loaded boolean;
 alter table monitor_results add column if not exists js_errors          text;
 alter table monitor_results add column if not exists page_blocked       boolean;
 alter table monitor_results add column if not exists render_error       text;
+alter table monitor_results add column if not exists referrer_used      text;
 
 -- Seed initial target
 insert into targets (url, name, active)
 values ('https://uprisinglabs.itch.io/bug-seek-expedition-edition', 'Bug Seek: Expedition Edition', true)
+on conflict do nothing;
+
+-- Seed default referrers (top sources from itch analytics)
+insert into referrers (url, name, enabled) values
+  ('https://www.bugnseek.com/', 'BugnSeek', true),
+  ('https://t.co/', 'Twitter / X', true),
+  ('https://itch.io/games/new-and-popular/platform-web', 'itch new+popular', true)
 on conflict do nothing;

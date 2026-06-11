@@ -1,29 +1,37 @@
 /**
  * GamersLab Geo Monitor — Playwright headless browser check
  *
- * Visits the target URL in a real headless Chromium with the correct
- * Accept-Language header for this region. Checks:
- *   - Page loads with correct HTTP status
- *   - TTFB (time to first byte)
- *   - Page title contains expected content
- *   - Game iframe is present and loads (not blank/error)
- *   - No JavaScript console errors
- *   - Page is not blocked by Cloudflare challenge
- *   - Content-Language header matches expected locale
- *   - Page renders within 15 seconds
+ * Fetches the active target URL and referrer list from Supabase at runtime
+ * so changes in the dashboard propagate immediately without touching secrets.
  *
- * Outputs MONITOR_RESULT env var for the Supabase push step.
+ * Visit flow (referrer simulation):
+ *   1. Navigate to a randomly chosen referrer URL (e.g. bugnseek.com or t.co/...)
+ *   2. Wait 2–4 seconds (simulates reading the referrer page)
+ *   3. Navigate to the target URL — Referer header is set by the browser naturally
+ *   4. Wait 3–6 seconds on the game page (simulates dwell time)
+ *
+ * Checks:
+ *   - Page loads without navigation error
+ *   - Page title contains expected content
+ *   - Game iframe is present with a valid src
+ *   - No JavaScript console errors (3+ = hard fail)
+ *   - Page is not blocked by Cloudflare challenge
+ *   - TTFB measured from first response event on the target URL
  */
 
 const { chromium } = require('playwright');
-const { execSync } = require('child_process');
+const https = require('https');
 const fs = require('fs');
 
 const REGION = process.env.REGION || 'unknown';
-const TARGET_URL = process.env.TARGET_URL || 'https://uprisinglabs.itch.io/bug-seek-expedition-edition';
-const TIMEOUT = 20000; // 20s page load timeout
+const MODE   = process.env.MODE   || 'standard';
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+// Fallback target if Supabase fetch fails
+const FALLBACK_TARGET = process.env.TARGET_URL || 'https://uprisinglabs.itch.io/bug-seek-expedition-edition';
 
-// Accept-Language headers per region — matches Cloudflare Worker mapping
+const TIMEOUT = 25000;
+
 const ACCEPT_LANGUAGE = {
   'us-east':      'en-US,en;q=0.9',
   'eu-west':      'fr-FR,fr;q=0.9,en;q=0.8',
@@ -33,7 +41,6 @@ const ACCEPT_LANGUAGE = {
   'af-south':     'sw-KE,sw;q=0.9,en;q=0.8',
 };
 
-// Known itch.io block/error indicators in page content
 const BLOCK_INDICATORS = [
   'cf-browser-verification',
   'Attention Required',
@@ -42,7 +49,6 @@ const BLOCK_INDICATORS = [
   'Access denied',
 ];
 
-// Game iframe selectors — itch.io embeds the game in one of these
 const GAME_IFRAME_SELECTORS = [
   'iframe#game_drop',
   'iframe.game_frame',
@@ -51,8 +57,69 @@ const GAME_IFRAME_SELECTORS = [
   '#game_frame',
 ];
 
+// ── Supabase helpers ──────────────────────────────────────────────────────────
+
+function sbGet(path) {
+  return new Promise((resolve, reject) => {
+    if (!SUPABASE_URL || !SUPABASE_KEY) return resolve(null);
+    const url = new URL(`${SUPABASE_URL}${path}`);
+    const req = https.get({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+      },
+    }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(5000, () => { req.destroy(); resolve(null); });
+  });
+}
+
+async function fetchConfig() {
+  // Fetch active target and enabled referrers in parallel
+  const [targets, referrers] = await Promise.all([
+    sbGet('/rest/v1/targets?active=eq.true&order=set_at.desc&limit=1&select=url'),
+    sbGet('/rest/v1/referrers?enabled=eq.true&select=url,name&order=created_at.asc'),
+  ]);
+
+  const targetUrl = (Array.isArray(targets) && targets[0]?.url) || FALLBACK_TARGET;
+  const referrerList = Array.isArray(referrers) ? referrers : [];
+
+  console.log(`Target: ${targetUrl}`);
+  console.log(`Referrers available: ${referrerList.map(r => r.name || r.url).join(', ') || 'none'}`);
+
+  return { targetUrl, referrerList };
+}
+
+// ── Random helpers ────────────────────────────────────────────────────────────
+
+function pick(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function randMs(min, max) {
+  return Math.floor(Math.random() * (max - min)) + min;
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
 async function run() {
+  const { targetUrl, referrerList } = await fetchConfig();
+  const chosenReferrer = referrerList.length > 0 ? pick(referrerList) : null;
   const acceptLanguage = ACCEPT_LANGUAGE[REGION] || 'en-US,en;q=0.9';
+
   const result = {
     region: REGION,
     ok: false,
@@ -65,6 +132,7 @@ async function run() {
     content_language: null,
     accept_language_sent: acceptLanguage,
     cf_colo: null,
+    referrer_used: chosenReferrer?.url || null,
   };
 
   let browser;
@@ -78,51 +146,67 @@ async function run() {
         '--disable-gpu',
         '--no-first-run',
         '--no-zygote',
+        '--disable-blink-features=AutomationControlled',
       ],
     });
 
     const context = await browser.newContext({
       locale: acceptLanguage.split(',')[0].split(';')[0].trim(),
-      extraHTTPHeaders: {
-        'Accept-Language': acceptLanguage,
-      },
+      extraHTTPHeaders: { 'Accept-Language': acceptLanguage },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
       viewport: { width: 1280, height: 900 },
     });
 
+    // Remove navigator.webdriver fingerprint
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
+
     const page = await context.newPage();
 
-    // Collect JS console errors
+    // ── Step 1: Visit referrer first (if available) ───────────────────────────
+    if (chosenReferrer) {
+      console.log(`Visiting referrer: ${chosenReferrer.url}`);
+      try {
+        await page.goto(chosenReferrer.url, {
+          waitUntil: 'domcontentloaded',
+          timeout: 15000,
+        });
+        // Dwell on referrer page: 2–4 seconds
+        await sleep(randMs(2000, 4000));
+        console.log(`Referrer loaded. Now navigating to target.`);
+      } catch (e) {
+        // Referrer visit failed — continue to target directly, not a hard failure
+        console.log(`Referrer visit failed (${e.message.substring(0, 80)}), proceeding to target directly.`);
+      }
+    }
+
+    // ── Step 2: Navigate to target ────────────────────────────────────────────
     const jsErrors = [];
     page.on('console', msg => {
-      if (msg.type() === 'error') {
-        jsErrors.push(msg.text().substring(0, 300));
-      }
+      if (msg.type() === 'error') jsErrors.push(msg.text().substring(0, 300));
     });
     page.on('pageerror', err => {
       jsErrors.push(`PageError: ${err.message}`.substring(0, 300));
     });
 
-    // TTFB via response event
     let ttfb = null;
     let responseStatus = null;
     let contentLanguage = null;
     const startTime = Date.now();
 
     page.on('response', response => {
-      if (response.url() === TARGET_URL || response.url().startsWith(TARGET_URL.split('?')[0])) {
-        if (ttfb === null) {
-          ttfb = Date.now() - startTime;
-          responseStatus = response.status();
-          contentLanguage = response.headers()['content-language'] || null;
-        }
+      const url = response.url();
+      if ((url === targetUrl || url.startsWith(targetUrl.split('?')[0])) && ttfb === null) {
+        ttfb = Date.now() - startTime;
+        responseStatus = response.status();
+        contentLanguage = response.headers()['content-language'] || null;
       }
     });
 
-    // Navigate to target
     let navError = null;
     try {
-      await page.goto(TARGET_URL, {
+      await page.goto(targetUrl, {
         waitUntil: 'domcontentloaded',
         timeout: TIMEOUT,
       });
@@ -135,31 +219,23 @@ async function run() {
 
     if (navError && !navError.includes('timeout')) {
       result.render_error = `Navigation failed: ${navError.substring(0, 200)}`;
-      result.ok = false;
     } else {
-      // Wait for page body to be present even if nav timed out
-      try {
-        await page.waitForSelector('body', { timeout: 5000 });
-      } catch (_) {}
+      try { await page.waitForSelector('body', { timeout: 5000 }); } catch (_) {}
 
       const pageContent = await page.content().catch(() => '');
-      const pageTitle = await page.title().catch(() => '');
+      const pageTitle   = await page.title().catch(() => '');
       result.page_title = pageTitle;
 
-      // Check for Cloudflare block
-      const isBlocked = BLOCK_INDICATORS.some(indicator =>
-        pageContent.includes(indicator) || pageTitle.includes(indicator)
+      const isBlocked = BLOCK_INDICATORS.some(i =>
+        pageContent.includes(i) || pageTitle.includes(i)
       );
       result.page_blocked = isBlocked;
 
       if (isBlocked) {
         result.render_error = 'Page blocked by Cloudflare challenge';
-        result.ok = false;
       } else if (responseStatus && responseStatus >= 400) {
         result.render_error = `HTTP ${responseStatus}`;
-        result.ok = false;
       } else {
-        // Check page has expected itch.io content
         const hasExpectedContent = (
           pageContent.includes('itch.io') ||
           pageContent.includes('bug-seek') ||
@@ -168,40 +244,41 @@ async function run() {
         );
 
         if (!hasExpectedContent) {
-          result.render_error = 'Page loaded but expected content not found';
+          result.render_error = 'Expected content not found in page';
         }
 
-        // Wait for game iframe to appear (itch.io lazy-loads it)
+        // ── Step 3: Wait for game iframe ─────────────────────────────────────
         let iframeFound = false;
         for (const selector of GAME_IFRAME_SELECTORS) {
           try {
             await page.waitForSelector(selector, { timeout: 8000 });
-            // Check iframe has a src (not empty/broken)
             const iframeSrc = await page.$eval(selector, el => el.src || el.dataset.src || '').catch(() => '');
             if (iframeSrc && iframeSrc !== 'about:blank') {
               iframeFound = true;
               break;
             }
-          } catch (_) {
-            // Try next selector
-          }
+          } catch (_) {}
         }
         result.game_iframe_loaded = iframeFound;
 
-        // Collect any JS errors that accumulated during load
-        result.js_errors = jsErrors.slice(0, 10); // cap at 10
+        // ── Step 4: Dwell on game page ────────────────────────────────────────
+        // Simulates a real user spending time on the page
+        await sleep(randMs(3000, 6000));
 
-        // Page is OK if: content found, not blocked, HTTP status < 400
-        // iframe missing is a warning, not a hard failure (some regions may block iframe)
+        result.js_errors = jsErrors.slice(0, 10);
+
         const httpOk = !responseStatus || (responseStatus >= 200 && responseStatus < 400);
         result.ok = hasExpectedContent && !isBlocked && httpOk;
 
-        // Hard fail if 3+ JS errors (likely broken page)
         if (jsErrors.length >= 3) {
-          result.render_error = `${jsErrors.length} JS console errors detected`;
+          result.render_error = `${jsErrors.length} JS console errors`;
           result.ok = false;
         }
       }
+    }
+
+    if (result.page_blocked || (responseStatus && responseStatus >= 400)) {
+      result.ok = false;
     }
 
   } catch (e) {
@@ -211,12 +288,10 @@ async function run() {
     if (browser) await browser.close();
   }
 
-  // Write result to GITHUB_ENV for downstream steps
   const resultJson = JSON.stringify(result);
   console.log('MONITOR RESULT:', resultJson);
   fs.appendFileSync(process.env.GITHUB_ENV, `MONITOR_RESULT=${resultJson}\n`);
-
-  process.exit(result.ok ? 0 : 0); // Always exit 0 — failures reported via Supabase, not CI failure
+  process.exit(0);
 }
 
 run().catch(e => {
