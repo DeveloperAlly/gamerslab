@@ -1,6 +1,8 @@
 name: Geo Monitor
 
 on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes — direct fallback, no n8n dependency
   workflow_dispatch:
     inputs:
       mode:
@@ -40,7 +42,7 @@ jobs:
       - name: Run monitor check
         env:
           REGION: ${{ matrix.region }}
-          MODE: ${{ github.event.inputs.mode }}
+          MODE: ${{ github.event.inputs.mode || 'standard' }}
         run: |
           RESULT=$(curl -s -X GET "$WORKER_URL" \
             -H "X-Monitor-Region: $REGION" \
@@ -62,16 +64,22 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           REGION: ${{ matrix.region }}
-          MODE: ${{ github.event.inputs.mode }}
+          MODE: ${{ github.event.inputs.mode || 'standard' }}
         run: |
           python3 - <<'EOF'
-          import json, urllib.request, os, time
+          import json, urllib.request, os, time, socket
 
           raw = os.environ.get('MONITOR_RESULT', '{}')
           try:
             data = json.loads(raw)
           except Exception:
             data = {}
+
+          # Capture runner public IP for geo verification
+          try:
+            runner_ip = urllib.request.urlopen('https://api.ipify.org', timeout=3).read().decode()
+          except Exception:
+            runner_ip = None
 
           payload = json.dumps({
             "region": os.environ['REGION'],
@@ -80,6 +88,7 @@ jobs:
             "content_language": data.get('content_language'),
             "accept_language_sent": data.get('accept_language_sent'),
             "cf_colo": data.get('cf_colo'),
+            "runner_ip": runner_ip,
             "mode": os.environ.get('MODE', 'standard'),
             "checked_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
           }).encode()
@@ -96,5 +105,5 @@ jobs:
             method='POST'
           )
           urllib.request.urlopen(req)
-          print(f"Pushed: region={os.environ['REGION']} status={data.get('ok')} ttfb={data.get('ttfb_ms')}ms colo={data.get('cf_colo')}")
+          print(f"Pushed: region={os.environ['REGION']} status={data.get('ok')} ttfb={data.get('ttfb_ms')}ms colo={data.get('cf_colo')} ip={runner_ip}")
           EOF
