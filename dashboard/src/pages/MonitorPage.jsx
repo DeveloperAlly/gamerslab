@@ -56,6 +56,7 @@ function HealthCard({ icon, label, sub, borderColor }) {
 export default function MonitorPage() {
   const [hours, setHours] = useState(24)
   const [rows, setRows] = useState([])
+  const [allTime, setAllTime] = useState({ total: 0, ok: 0, failed: 0, surgeTotal: 0 })
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [error, setError] = useState(null)
@@ -65,8 +66,12 @@ export default function MonitorPage() {
     setLoading(true)
     setError(null)
     try {
-      const data = await api.results(hours)
+      const [data, stats] = await Promise.all([
+        api.results(hours),
+        api.allTimeStats(),
+      ])
       setRows(Array.isArray(data) ? data : [])
+      setAllTime(stats)
       setLastUpdated(new Date())
     } catch (e) { setError(e.message); console.error(e) }
     setLoading(false)
@@ -75,21 +80,24 @@ export default function MonitorPage() {
   useEffect(() => { load() }, [load])
   useEffect(() => { const t = setInterval(load, 60_000); return () => clearInterval(t) }, [load])
 
-  const total = rows.length
-  const ok = rows.filter(r => r.status === 1).length
-  const failed = total - ok
-  const uptime = total ? +(ok / total * 100).toFixed(1) : 0
+  // Windowed stats — for charts, region table, live feed
+  const windowTotal = rows.length
+  const windowOk = rows.filter(r => r.status === 1).length
+  const windowFailed = windowTotal - windowOk
+  const windowUptime = windowTotal ? +(windowOk / windowTotal * 100).toFixed(1) : 0
   const ttfbs = rows.filter(r => r.ttfb_ms).map(r => r.ttfb_ms)
   const avgTtfb = ttfbs.length ? Math.round(ttfbs.reduce((a, b) => a + b, 0) / ttfbs.length) : 0
   const p95Ttfb = ttfbs.length ? Math.round([...ttfbs].sort((a,b)=>a-b)[Math.floor(ttfbs.length * 0.95)]) : 0
-  const surgeRuns = rows.filter(r => r.mode === 'surge').length
+  const windowSurge = rows.filter(r => r.mode === 'surge').length
   const hoursLabel = hours < 24 ? `${hours}h` : hours === 168 ? '7d' : hours === 720 ? '30d' : '24h'
 
-  // Playwright health stats
+  // All-time uptime
+  const allTimeUptime = allTime.total ? +(allTime.ok / allTime.total * 100).toFixed(1) : 0
+
+  // Playwright health stats (windowed)
   const pwRows = rows.filter(r => r.page_title !== undefined && r.page_title !== null)
   const iframeFailures = pwRows.filter(r => r.game_iframe_loaded === false && r.status === 1).length
   const jsErrorRows = pwRows.filter(r => { try { return JSON.parse(r.js_errors || '[]').length > 0 } catch { return false } }).length
-  // Click-check stats
   const clickChecks = rows.filter(r => r.click_check_done === true)
   const loginPromptOk = clickChecks.filter(r => r.login_prompt_shown === true).length
   const loginPromptFailed = clickChecks.filter(r => r.login_prompt_shown === false).length
@@ -154,14 +162,31 @@ export default function MonitorPage() {
         <button onClick={load} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, border: '0.5px solid var(--b2)', background: 'transparent', color: 'var(--mu)' }}>↻</button>
       </div>
 
-      {/* stat cards */}
+      {/* stat cards — all-time totals */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
-        <StatCard label="monitor checks" value={total.toLocaleString()} sub={`last ${hoursLabel} · browser visits`} />
-        <StatCard label="uptime" value={`${uptime}%`} sub={`${ok.toLocaleString()} ok · ${failed} failed`}
-          color={uptime === 100 ? 'var(--green)' : uptime >= 95 ? 'var(--amber)' : 'var(--red)'} pulse={uptime === 100} />
-        <StatCard label="avg ttfb" value={`${avgTtfb}ms`} sub={`p95 ${p95Ttfb}ms`}
-          color={avgTtfb < 200 ? 'var(--green)' : avgTtfb < 500 ? 'var(--amber)' : 'var(--red)'} />
-        <StatCard label="surge runs" value={surgeRuns} sub="campaign tests" />
+        <StatCard
+          label="monitor checks"
+          value={allTime.total.toLocaleString()}
+          sub="all time · browser visits"
+        />
+        <StatCard
+          label="uptime"
+          value={`${allTimeUptime}%`}
+          sub={`${allTime.ok.toLocaleString()} ok · ${allTime.failed.toLocaleString()} failed · all time`}
+          color={allTimeUptime === 100 ? 'var(--green)' : allTimeUptime >= 95 ? 'var(--amber)' : 'var(--red)'}
+          pulse={allTimeUptime === 100}
+        />
+        <StatCard
+          label="avg ttfb"
+          value={`${avgTtfb}ms`}
+          sub={`p95 ${p95Ttfb}ms · last ${hoursLabel}`}
+          color={avgTtfb < 200 ? 'var(--green)' : avgTtfb < 500 ? 'var(--amber)' : 'var(--red)'}
+        />
+        <StatCard
+          label="surge runs"
+          value={allTime.surgeTotal.toLocaleString()}
+          sub="all time · campaign tests"
+        />
       </div>
 
       {/* Playwright health banner */}
@@ -192,7 +217,7 @@ export default function MonitorPage() {
           <HealthCard
             icon="🖥️"
             label="Browser visits"
-            sub={`${pwRows.length} full Playwright checks`}
+            sub={`${pwRows.length} Playwright checks · last ${hoursLabel}`}
           />
         </div>
       )}
@@ -238,7 +263,7 @@ export default function MonitorPage() {
       {/* regions + feed */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 10 }}>regions</div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 10 }}>regions <span style={{ fontSize: 10, color: 'var(--mu)', fontWeight: 400 }}>· last {hoursLabel}</span></div>
           <div style={{ display: 'grid', gridTemplateColumns: '16px 1fr 48px 52px 40px', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottom: '0.5px solid var(--b1)' }}>
             {['','region','uptime','ttfb','pop'].map(h => (
               <div key={h} style={{ fontSize: 9, color: 'var(--hi)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: h !== '' && h !== 'region' ? 'right' : 'left' }}>{h}</div>
