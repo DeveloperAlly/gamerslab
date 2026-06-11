@@ -36,16 +36,17 @@ async function workerFetch(path, opts = {}) {
 }
 
 export const api = {
-  // ── Supabase reads ────────────────────────────────────────────────────────
-  // Now includes Playwright fields: page_title, game_iframe_loaded, js_errors, page_blocked, render_error
+  // ── Monitor results ───────────────────────────────────────────────────────────
   results(hours = 24) {
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString()
     return sbFetch(
-      `/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,runner_ip,mode,checked_at,page_title,game_iframe_loaded,js_errors,page_blocked,render_error` +
+      `/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,runner_ip,mode,checked_at,` +
+      `page_title,game_iframe_loaded,js_errors,page_blocked,render_error,referrer_used` +
       `&checked_at=gte.${since}&order=checked_at.desc&limit=2000`
     )
   },
 
+  // ── Targets ──────────────────────────────────────────────────────────────────
   activeTarget() {
     return sbFetch(`/rest/v1/targets?active=eq.true&order=set_at.desc&limit=1`)
       .then(rows => rows[0] || null)
@@ -55,19 +56,6 @@ export const api = {
     return sbFetch(`/rest/v1/targets?select=id,url,name,set_at,active&order=set_at.desc&limit=20`)
   },
 
-  scheduledSurges() {
-    return sbFetch(`/rest/v1/scheduled_surges?select=id,scheduled_at,label,status,fired_at&status=eq.pending&order=scheduled_at.asc&limit=15`)
-  },
-
-  cancelSurge(id) {
-    return sbFetch(`/rest/v1/scheduled_surges?id=eq.${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: 'cancelled' }),
-      headers: { Prefer: 'return=minimal' },
-    })
-  },
-
-  // ── Supabase writes ───────────────────────────────────────────────────────
   async setTarget(url, name) {
     await sbFetch(`/rest/v1/targets?active=eq.true`, {
       method: 'PATCH',
@@ -81,12 +69,63 @@ export const api = {
     })
   },
 
-  // ── Worker — GitHub Actions trigger ──────────────────────────────────────
+  // ── Referrers ──────────────────────────────────────────────────────────────
+  referrers() {
+    return sbFetch(`/rest/v1/referrers?select=id,url,name,enabled&order=created_at.asc`)
+  },
+
+  addReferrer(url, name) {
+    return sbFetch(`/rest/v1/referrers`, {
+      method: 'POST',
+      body: JSON.stringify({ url, name: name || url, enabled: true }),
+      headers: { Prefer: 'return=representation' },
+    })
+  },
+
+  toggleReferrer(id, enabled) {
+    return sbFetch(`/rest/v1/referrers?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+      headers: { Prefer: 'return=minimal' },
+    })
+  },
+
+  deleteReferrer(id) {
+    return sbFetch(`/rest/v1/referrers?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' },
+    })
+  },
+
+  // ── Scheduled surges ─────────────────────────────────────────────────────────
+  scheduledSurges() {
+    return sbFetch(`/rest/v1/scheduled_surges?select=id,scheduled_at,label,status,fired_at&status=eq.pending&order=scheduled_at.asc&limit=15`)
+  },
+
+  cancelSurge(id) {
+    return sbFetch(`/rest/v1/scheduled_surges?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'cancelled' }),
+      headers: { Prefer: 'return=minimal' },
+    })
+  },
+
+  scheduleSurge(scheduledAt, label) {
+    return fetch(`${N8N_URL}/webhook/schedule-surge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scheduledAt, label }),
+    }).then(async res => {
+      if (!res.ok) throw new Error(`Schedule failed: ${await res.text()}`)
+      return res.json()
+    })
+  },
+
+  // ── Worker — triggers + n8n control ─────────────────────────────────────────
   trigger(mode, regions) {
     return workerFetch('/api/trigger', { body: { mode, regions } })
   },
 
-  // ── Worker — n8n schedule control ────────────────────────────────────────
   getWorkflowStatus() {
     return workerFetch('/api/workflow/status', { method: 'GET' })
   },
@@ -103,19 +142,6 @@ export const api = {
     return workerFetch('/api/workflow/deactivate', { body: {} })
   },
 
-  // ── n8n webhook — schedule one-off surge ─────────────────────────────────
-  scheduleSurge(scheduledAt, label) {
-    return fetch(`${N8N_URL}/webhook/schedule-surge`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scheduledAt, label }),
-    }).then(async res => {
-      if (!res.ok) throw new Error(`Schedule failed: ${await res.text()}`)
-      return res.json()
-    })
-  },
-
-  // ── Worker — Discord test ─────────────────────────────────────────────────
   testDiscord() {
     return workerFetch('/api/discord-test', { body: {} })
   },
