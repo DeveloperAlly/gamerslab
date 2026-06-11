@@ -12,6 +12,9 @@ on:
         default: 'us-east,eu-west,ap-southeast,sa-east,me-south,af-south'
         required: false
 
+env:
+  WORKER_URL: https://geo-monitor-worker.divine-wind-e9a3.workers.dev
+
 jobs:
   monitor:
     strategy:
@@ -36,18 +39,15 @@ jobs:
     steps:
       - name: Run monitor check
         env:
-          WORKER_URL: ${{ secrets.WORKER_URL }}
           REGION: ${{ matrix.region }}
           MODE: ${{ github.event.inputs.mode }}
         run: |
-          # Standard check — single request, capture full result
           RESULT=$(curl -s -X GET "$WORKER_URL" \
             -H "X-Monitor-Region: $REGION" \
             -H "X-Monitor-Mode: $MODE")
 
           echo "Result: $RESULT"
 
-          # For surge mode — fire 20 concurrent requests then capture one result
           if [ "$MODE" = "surge" ]; then
             for i in $(seq 1 19); do
               curl -s "$WORKER_URL" -H "X-Monitor-Region: $REGION" > /dev/null &
@@ -96,5 +96,5 @@ jobs:
             method='POST'
           )
           urllib.request.urlopen(req)
-          print(f"Pushed result for {os.environ['REGION']}: status={data.get('ok')}, ttfb={data.get('ttfb_ms')}ms, colo={data.get('cf_colo')}")
+          print(f"Pushed: region={os.environ['REGION']} status={data.get('ok')} ttfb={data.get('ttfb_ms')}ms colo={data.get('cf_colo')}")
           EOF
