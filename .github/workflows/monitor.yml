@@ -83,8 +83,7 @@ jobs:
       - uses: actions/checkout@v4.2.2
 
       # ── Install everything BEFORE connecting VPN ──────────────────────────
-      # VPN routes ALL traffic through ProtonVPN — npm/apt must run first
-      # while the runner still has its own network access.
+      # VPN routes ALL traffic — npm/apt must complete first on plain network
 
       - name: Install WireGuard
         run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard resolvconf
@@ -100,7 +99,7 @@ jobs:
           npm install playwright@latest
           npx playwright install chromium --with-deps
 
-      # ── Connect VPN — all subsequent steps route through ProtonVPN ────────
+      # ── Connect VPN — Playwright runs through ProtonVPN tunnel ────────────
 
       - name: Connect VPN (${{ matrix.country }})
         run: |
@@ -113,8 +112,6 @@ jobs:
             2>/dev/null || echo "unknown unknown")
           echo "Outbound IP: $ACTUAL (expected: ${{ matrix.country }})"
 
-      # ── Playwright runs through VPN tunnel ────────────────────────────────
-
       - name: Run Playwright monitor
         env:
           REGION: ${{ matrix.region }}
@@ -124,7 +121,24 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: node .github/scripts/monitor.js
 
+      - name: Surge parallel checks
+        if: ${{ github.event.inputs.mode == 'surge' }}
+        env:
+          REGION: ${{ matrix.region }}
+          TARGET_URL: ${{ secrets.TARGET_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node .github/scripts/surge.js
+
+      # ── Disconnect VPN before pushing results ─────────────────────────────
+      # Supabase push requires plain network — VPN blocks external DNS
+
+      - name: Disconnect VPN
+        if: always()
+        run: sudo wg-quick down wg0 || true
+
       - name: Push to Supabase
+        if: always()
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -142,14 +156,15 @@ jobs:
           except Exception:
             data = {}
 
+          # Get runner IP — now on plain network post-VPN disconnect
+          # This will be the Azure runner IP, not the VPN IP.
+          # VPN IP was logged during the Connect VPN step.
           try:
             resp = urllib.request.urlopen('http://ip-api.com/json/?fields=query,countryCode', timeout=5).read()
             ip_data = json.loads(resp)
             runner_ip = ip_data.get('query')
-            actual_country = ip_data.get('countryCode')
           except Exception:
             runner_ip = None
-            actual_country = None
 
           payload = json.dumps({
             "region":               os.environ['REGION'],
@@ -186,20 +201,5 @@ jobs:
             method='POST'
           )
           urllib.request.urlopen(req)
-          print(f"Pushed: region={os.environ['REGION']} country={actual_country} ip={runner_ip} vpn={os.environ['VPN_CONF']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms login={data.get('login_prompt_shown')}")
+          print(f"Pushed: region={os.environ['REGION']} country={os.environ['COUNTRY']} vpn={os.environ['VPN_CONF']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms login={data.get('login_prompt_shown')}")
           EOF
-
-      # Surge runs before VPN disconnect so traffic goes through VPN tunnel
-      - name: Surge parallel checks
-        if: ${{ github.event.inputs.mode == 'surge' }}
-        env:
-          REGION: ${{ matrix.region }}
-          TARGET_URL: ${{ secrets.TARGET_URL }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: node .github/scripts/surge.js
-
-      # Always disconnect VPN last
-      - name: Disconnect VPN
-        if: always()
-        run: sudo wg-quick down wg0 || true
