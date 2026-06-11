@@ -1,25 +1,17 @@
 name: VPN Geo Test
 
-# Manual trigger only — does NOT affect the monitor workflow
-# Run this to verify ProtonVPN WireGuard geo-routing works on GitHub Actions runners
-# before rebuilding the monitor workflow
+# Manual trigger only — does NOT affect monitor.yml
+# Reads ProtonVPN WireGuard configs directly from /proton/ in the repo
+# SUCCESS = each job shows a different country IP after connecting
 #
-# SETUP:
-#   1. Create a free ProtonVPN account at https://protonvpn.com
-#   2. Go to https://account.proton.me/u/0/vpn/WireGuard
-#   3. Create a WireGuard config for each country and download the .conf file
-#   4. Add each .conf file contents as a GitHub Actions secret:
-#      PROTON_WG_NL  = Netherlands config
-#      PROTON_WG_JP  = Japan config
-#      PROTON_WG_US  = USA config
-#      PROTON_WG_SG  = Singapore config
-#      PROTON_WG_RO  = Romania config
-#      PROTON_WG_CA  = Canada config
-#   5. Run this workflow manually from the Actions tab
-#
-# SUCCESS CRITERIA:
-#   Each job must show a different IP and country in the "IP after VPN" step
-#   compared to the "IP before VPN" step, and the country must match the VPN region.
+# Available configs:
+#   NL: proton/wg-NL-FREE-31.conf
+#   JP: proton/wg-JP-FREE-33.conf  (or wg-JP-FREE-9.conf)
+#   CA: proton/wg-CA-FREE-4.conf
+#   MX: proton/wg-MX-FREE-6.conf
+#   RO: proton/wg-RO-FREE-29.conf
+#   SG: proton/wg-SG-FREE-17.conf  (or wg-SG-FREE-9.conf)
+#   PL: proton/wg-PL-FREE-9.conf
 
 on:
   workflow_dispatch:
@@ -30,6 +22,8 @@ jobs:
     name: Test Netherlands (NL)
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: IP before VPN
         run: |
           echo "=== BEFORE VPN ==="
@@ -41,19 +35,19 @@ jobs:
 
       - name: Connect ProtonVPN NL
         run: |
-          echo "${{ secrets.PROTON_WG_NL }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          sudo cp proton/wg-NL-FREE-31.conf /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
           sleep 3
 
-      - name: IP after VPN (must show NL)
+      - name: Verify IP is in NL
         run: |
-          echo "=== AFTER VPN — expected country: NL ==="
+          echo "=== AFTER VPN — expected: NL ==="
           curl -s https://ipinfo.io/json
           echo ""
-          COUNTRY=$(curl -s https://ipinfo.io/country)
-          echo "Country code: $COUNTRY"
+          COUNTRY=$(curl -s https://ipinfo.io/country | tr -d '[:space:]')
+          echo "Country: $COUNTRY"
           if [ "$COUNTRY" = "NL" ]; then
-            echo "✅ PASS — IP is in Netherlands"
+            echo "✅ PASS — Netherlands confirmed"
           else
             echo "❌ FAIL — expected NL, got $COUNTRY"
             exit 1
@@ -63,10 +57,13 @@ jobs:
         if: always()
         run: sudo wg-quick down wg0 || true
 
+
   test-jp:
     name: Test Japan (JP)
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: IP before VPN
         run: |
           echo "=== BEFORE VPN ==="
@@ -78,19 +75,19 @@ jobs:
 
       - name: Connect ProtonVPN JP
         run: |
-          echo "${{ secrets.PROTON_WG_JP }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          sudo cp proton/wg-JP-FREE-33.conf /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
           sleep 3
 
-      - name: IP after VPN (must show JP)
+      - name: Verify IP is in JP
         run: |
-          echo "=== AFTER VPN — expected country: JP ==="
+          echo "=== AFTER VPN — expected: JP ==="
           curl -s https://ipinfo.io/json
           echo ""
-          COUNTRY=$(curl -s https://ipinfo.io/country)
-          echo "Country code: $COUNTRY"
+          COUNTRY=$(curl -s https://ipinfo.io/country | tr -d '[:space:]')
+          echo "Country: $COUNTRY"
           if [ "$COUNTRY" = "JP" ]; then
-            echo "✅ PASS — IP is in Japan"
+            echo "✅ PASS — Japan confirmed"
           else
             echo "❌ FAIL — expected JP, got $COUNTRY"
             exit 1
@@ -100,121 +97,13 @@ jobs:
         if: always()
         run: sudo wg-quick down wg0 || true
 
-  test-us:
-    name: Test USA (US)
-    runs-on: ubuntu-latest
-    steps:
-      - name: IP before VPN
-        run: |
-          echo "=== BEFORE VPN ==="
-          curl -s https://ipinfo.io/json
-          echo ""
-
-      - name: Install WireGuard
-        run: sudo apt-get install -y wireguard resolvconf
-
-      - name: Connect ProtonVPN US
-        run: |
-          echo "${{ secrets.PROTON_WG_US }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
-          sudo wg-quick up wg0
-          sleep 3
-
-      - name: IP after VPN (must show US)
-        run: |
-          echo "=== AFTER VPN — expected country: US ==="
-          curl -s https://ipinfo.io/json
-          echo ""
-          COUNTRY=$(curl -s https://ipinfo.io/country)
-          echo "Country code: $COUNTRY"
-          if [ "$COUNTRY" = "US" ]; then
-            echo "✅ PASS — IP is in USA"
-          else
-            echo "❌ FAIL — expected US, got $COUNTRY"
-            exit 1
-          fi
-
-      - name: Disconnect VPN
-        if: always()
-        run: sudo wg-quick down wg0 || true
-
-  test-sg:
-    name: Test Singapore (SG)
-    runs-on: ubuntu-latest
-    steps:
-      - name: IP before VPN
-        run: |
-          echo "=== BEFORE VPN ==="
-          curl -s https://ipinfo.io/json
-          echo ""
-
-      - name: Install WireGuard
-        run: sudo apt-get install -y wireguard resolvconf
-
-      - name: Connect ProtonVPN SG
-        run: |
-          echo "${{ secrets.PROTON_WG_SG }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
-          sudo wg-quick up wg0
-          sleep 3
-
-      - name: IP after VPN (must show SG)
-        run: |
-          echo "=== AFTER VPN — expected country: SG ==="
-          curl -s https://ipinfo.io/json
-          echo ""
-          COUNTRY=$(curl -s https://ipinfo.io/country)
-          echo "Country code: $COUNTRY"
-          if [ "$COUNTRY" = "SG" ]; then
-            echo "✅ PASS — IP is in Singapore"
-          else
-            echo "❌ FAIL — expected SG, got $COUNTRY"
-            exit 1
-          fi
-
-      - name: Disconnect VPN
-        if: always()
-        run: sudo wg-quick down wg0 || true
-
-  test-ro:
-    name: Test Romania (RO)
-    runs-on: ubuntu-latest
-    steps:
-      - name: IP before VPN
-        run: |
-          echo "=== BEFORE VPN ==="
-          curl -s https://ipinfo.io/json
-          echo ""
-
-      - name: Install WireGuard
-        run: sudo apt-get install -y wireguard resolvconf
-
-      - name: Connect ProtonVPN RO
-        run: |
-          echo "${{ secrets.PROTON_WG_RO }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
-          sudo wg-quick up wg0
-          sleep 3
-
-      - name: IP after VPN (must show RO)
-        run: |
-          echo "=== AFTER VPN — expected country: RO ==="
-          curl -s https://ipinfo.io/json
-          echo ""
-          COUNTRY=$(curl -s https://ipinfo.io/country)
-          echo "Country code: $COUNTRY"
-          if [ "$COUNTRY" = "RO" ]; then
-            echo "✅ PASS — IP is in Romania"
-          else
-            echo "❌ FAIL — expected RO, got $COUNTRY"
-            exit 1
-          fi
-
-      - name: Disconnect VPN
-        if: always()
-        run: sudo wg-quick down wg0 || true
 
   test-ca:
     name: Test Canada (CA)
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: IP before VPN
         run: |
           echo "=== BEFORE VPN ==="
@@ -226,19 +115,19 @@ jobs:
 
       - name: Connect ProtonVPN CA
         run: |
-          echo "${{ secrets.PROTON_WG_CA }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          sudo cp proton/wg-CA-FREE-4.conf /etc/wireguard/wg0.conf
           sudo wg-quick up wg0
           sleep 3
 
-      - name: IP after VPN (must show CA)
+      - name: Verify IP is in CA
         run: |
-          echo "=== AFTER VPN — expected country: CA ==="
+          echo "=== AFTER VPN — expected: CA ==="
           curl -s https://ipinfo.io/json
           echo ""
-          COUNTRY=$(curl -s https://ipinfo.io/country)
-          echo "Country code: $COUNTRY"
+          COUNTRY=$(curl -s https://ipinfo.io/country | tr -d '[:space:]')
+          echo "Country: $COUNTRY"
           if [ "$COUNTRY" = "CA" ]; then
-            echo "✅ PASS — IP is in Canada"
+            echo "✅ PASS — Canada confirmed"
           else
             echo "❌ FAIL — expected CA, got $COUNTRY"
             exit 1
@@ -248,27 +137,194 @@ jobs:
         if: always()
         run: sudo wg-quick down wg0 || true
 
+
+  test-sg:
+    name: Test Singapore (SG)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: IP before VPN
+        run: |
+          echo "=== BEFORE VPN ==="
+          curl -s https://ipinfo.io/json
+          echo ""
+
+      - name: Install WireGuard
+        run: sudo apt-get install -y wireguard resolvconf
+
+      - name: Connect ProtonVPN SG
+        run: |
+          sudo cp proton/wg-SG-FREE-17.conf /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+          sleep 3
+
+      - name: Verify IP is in SG
+        run: |
+          echo "=== AFTER VPN — expected: SG ==="
+          curl -s https://ipinfo.io/json
+          echo ""
+          COUNTRY=$(curl -s https://ipinfo.io/country | tr -d '[:space:]')
+          echo "Country: $COUNTRY"
+          if [ "$COUNTRY" = "SG" ]; then
+            echo "✅ PASS — Singapore confirmed"
+          else
+            echo "❌ FAIL — expected SG, got $COUNTRY"
+            exit 1
+          fi
+
+      - name: Disconnect VPN
+        if: always()
+        run: sudo wg-quick down wg0 || true
+
+
+  test-ro:
+    name: Test Romania (RO)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: IP before VPN
+        run: |
+          echo "=== BEFORE VPN ==="
+          curl -s https://ipinfo.io/json
+          echo ""
+
+      - name: Install WireGuard
+        run: sudo apt-get install -y wireguard resolvconf
+
+      - name: Connect ProtonVPN RO
+        run: |
+          sudo cp proton/wg-RO-FREE-29.conf /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+          sleep 3
+
+      - name: Verify IP is in RO
+        run: |
+          echo "=== AFTER VPN — expected: RO ==="
+          curl -s https://ipinfo.io/json
+          echo ""
+          COUNTRY=$(curl -s https://ipinfo.io/country | tr -d '[:space:]')
+          echo "Country: $COUNTRY"
+          if [ "$COUNTRY" = "RO" ]; then
+            echo "✅ PASS — Romania confirmed"
+          else
+            echo "❌ FAIL — expected RO, got $COUNTRY"
+            exit 1
+          fi
+
+      - name: Disconnect VPN
+        if: always()
+        run: sudo wg-quick down wg0 || true
+
+
+  test-pl:
+    name: Test Poland (PL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: IP before VPN
+        run: |
+          echo "=== BEFORE VPN ==="
+          curl -s https://ipinfo.io/json
+          echo ""
+
+      - name: Install WireGuard
+        run: sudo apt-get install -y wireguard resolvconf
+
+      - name: Connect ProtonVPN PL
+        run: |
+          sudo cp proton/wg-PL-FREE-9.conf /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+          sleep 3
+
+      - name: Verify IP is in PL
+        run: |
+          echo "=== AFTER VPN — expected: PL ==="
+          curl -s https://ipinfo.io/json
+          echo ""
+          COUNTRY=$(curl -s https://ipinfo.io/country | tr -d '[:space:]')
+          echo "Country: $COUNTRY"
+          if [ "$COUNTRY" = "PL" ]; then
+            echo "✅ PASS — Poland confirmed"
+          else
+            echo "❌ FAIL — expected PL, got $COUNTRY"
+            exit 1
+          fi
+
+      - name: Disconnect VPN
+        if: always()
+        run: sudo wg-quick down wg0 || true
+
+
+  test-mx:
+    name: Test Mexico (MX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: IP before VPN
+        run: |
+          echo "=== BEFORE VPN ==="
+          curl -s https://ipinfo.io/json
+          echo ""
+
+      - name: Install WireGuard
+        run: sudo apt-get install -y wireguard resolvconf
+
+      - name: Connect ProtonVPN MX
+        run: |
+          sudo cp proton/wg-MX-FREE-6.conf /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+          sleep 3
+
+      - name: Verify IP is in MX
+        run: |
+          echo "=== AFTER VPN — expected: MX ==="
+          curl -s https://ipinfo.io/json
+          echo ""
+          COUNTRY=$(curl -s https://ipinfo.io/country | tr -d '[:space:]')
+          echo "Country: $COUNTRY"
+          if [ "$COUNTRY" = "MX" ]; then
+            echo "✅ PASS — Mexico confirmed"
+          else
+            echo "❌ FAIL — expected MX, got $COUNTRY"
+            exit 1
+          fi
+
+      - name: Disconnect VPN
+        if: always()
+        run: sudo wg-quick down wg0 || true
+
+
   summary:
     name: Summary
     runs-on: ubuntu-latest
-    needs: [test-nl, test-jp, test-us, test-sg, test-ro, test-ca]
+    needs: [test-nl, test-jp, test-ca, test-sg, test-ro, test-pl, test-mx]
     if: always()
     steps:
       - name: Results
         run: |
           echo "NL: ${{ needs.test-nl.result }}"
           echo "JP: ${{ needs.test-jp.result }}"
-          echo "US: ${{ needs.test-us.result }}"
+          echo "CA: ${{ needs.test-ca.result }}"
           echo "SG: ${{ needs.test-sg.result }}"
           echo "RO: ${{ needs.test-ro.result }}"
-          echo "CA: ${{ needs.test-ca.result }}"
-          if [ "${{ needs.test-nl.result }}" = "success" ] && \
-             [ "${{ needs.test-jp.result }}" = "success" ] && \
-             [ "${{ needs.test-us.result }}" = "success" ] && \
-             [ "${{ needs.test-sg.result }}" = "success" ] && \
-             [ "${{ needs.test-ro.result }}" = "success" ] && \
-             [ "${{ needs.test-ca.result }}" = "success" ]; then
-            echo "✅ ALL 6 REGIONS VERIFIED — safe to rebuild monitor.yml with VPN"
+          echo "PL: ${{ needs.test-pl.result }}"
+          echo "MX: ${{ needs.test-mx.result }}"
+
+          PASS=true
+          [ "${{ needs.test-nl.result }}" != "success" ] && PASS=false
+          [ "${{ needs.test-jp.result }}" != "success" ] && PASS=false
+          [ "${{ needs.test-ca.result }}" != "success" ] && PASS=false
+          [ "${{ needs.test-sg.result }}" != "success" ] && PASS=false
+          [ "${{ needs.test-ro.result }}" != "success" ] && PASS=false
+          [ "${{ needs.test-pl.result }}" != "success" ] && PASS=false
+          [ "${{ needs.test-mx.result }}" != "success" ] && PASS=false
+
+          if [ "$PASS" = "true" ]; then
+            echo "✅ ALL 7 REGIONS VERIFIED — safe to rebuild monitor.yml with ProtonVPN WireGuard"
           else
             echo "❌ ONE OR MORE REGIONS FAILED — do not rebuild monitor.yml yet"
             exit 1
