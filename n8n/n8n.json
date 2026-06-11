@@ -1,690 +1,521 @@
-[
-  {
-    "name": "Workflow A — Scheduled monitor",
-    "nodes": [
-      {
-        "parameters": {
-          "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] }
-        },
-        "id": "schedule-trigger",
-        "name": "Schedule Trigger",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1,
-        "position": [240, 300]
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow A — Scheduled Monitor\n\n**Trigger:** Schedule Trigger every 5 minutes\n\n**Purpose:** Randomly dispatches the Geo Monitor GitHub Action approximately every 15 minutes on average (30% fire rate creates natural variation that avoids predictable bot-like patterns).\n\n**Flow:**\nSchedule Trigger → Random gate (30% pass) → Dispatch GitHub Action (standard mode)\n\n**On error:** GitHub dispatch failures are caught and posted to #gamers-lab-monitor on Discord so you know immediately if the pipeline stops working.\n\n**Dashboard control:** Toggle and interval selector on the Control page activates/deactivates this workflow and updates the Schedule Trigger interval via the n8n API.\n\n**Note:** GitHub Actions also runs on its own cron (*/5 * * * *) as a fallback — this workflow adds randomness on top of that."
       },
-      {
-        "parameters": {
-          "jsCode": "if (Math.random() > 0.3) { return []; }\nreturn [{ json: { proceed: true } }];"
-        },
-        "id": "random-gate",
-        "name": "Random gate",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [460, 300]
-      },
-      {
-        "parameters": {
-          "resource": "workflowDispatch",
-          "owner": "={{ $env.GITHUB_REPO_OWNER }}",
-          "repository": "={{ $env.GITHUB_REPO_NAME }}",
-          "workflowId": "monitor.yml",
-          "ref": "main",
-          "additionalFields": {
-            "inputs": {
-              "inputsUi": {
-                "inputValues": [{ "name": "mode", "value": "standard" }]
-              }
-            }
-          }
-        },
-        "id": "dispatch-standard",
-        "name": "Dispatch standard run",
-        "type": "n8n-nodes-base.github",
-        "typeVersion": 1,
-        "position": [680, 300],
-        "credentials": {
-          "githubApi": {
-            "id": "QYTeIJkdqrhQltwn",
-            "name": "GitHub DeveloperAlly"
-          }
-        }
-      }
-    ],
-    "connections": {
-      "Schedule Trigger": {
-        "main": [[{ "node": "Random gate", "type": "main", "index": 0 }]]
-      },
-      "Random gate": {
-        "main": [
-          [{ "node": "Dispatch standard run", "type": "main", "index": 0 }]
-        ]
-      }
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 100],
+      "id": "f9267472-022e-4352-9d43-5a046c6288d8",
+      "name": "Sticky Note — Workflow A"
     },
-    "settings": { "executionOrder": "v1" }
+    {
+      "parameters": {
+        "content": "## Workflow B — Campaign Surge Webhook\n\n**Trigger:** POST /webhook/surge\n\n**Purpose:** Immediately dispatches a surge test when called. Used by the dashboard 'Trigger surge' button and can be called externally during live campaigns.\n\n**Flow:**\nWebhook (POST /surge) → Dispatch GitHub Action (surge mode, all 6 regions) → Respond { triggered: true }\n\n**What surge mode does:** Fires 20 concurrent requests per region (120 total) to simulate campaign traffic spike — tests whether the target URL stays available under high concurrent load.\n\n**Caller:** Dashboard Control page → Worker /api/trigger → GitHub Actions dispatch. Also callable directly: POST https://n8n-j39n.sliplane.app/webhook/surge"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 370],
+      "id": "aeff51b0-059c-428e-a39b-a99df06423ab",
+      "name": "Sticky Note — Workflow B"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow C — Stats + Alerting (Discord)\n\n**Trigger:** Schedule Trigger every 30 minutes\n\n**Purpose:** Posts a stats digest to #gamers-lab-monitor every 30 minutes regardless of pass/fail. Also alerts immediately if the pipeline appears dead.\n\n**Flow:**\nAlert schedule (30min) → Check status (Postgres query) → Build report (Code node) → Send report (Discord Bot)\n\n**Discord message format:**\n✅/⚠️/🚨 GamersLab Monitor — 30 min report\n{ok}/{total} checks passed · avg {ttfb}ms · last run {time}\n\n🟢 us-east — 100% · 145ms\n🟢 eu-west — 100% · 163ms\n...\n\n**Alert conditions:**\n- 💀 Pipeline dead: no results in 30 min → posts dead alert with GitHub Actions link\n- ⚠️ Failures: 1–2 failed checks → warning\n- 🚨 Critical: 3+ failed checks → urgent alert\n- ✅ All good: normal stats digest, no extra alert"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 624],
+      "id": "657b0977-0642-4102-9744-e82496ed9810",
+      "name": "Sticky Note — Workflow C"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow D — Target URL Sync\n\n**Trigger:** POST /webhook/update-target\n\n**Purpose:** Updates the monitored target URL when changed from the dashboard. Saves to the targets table in Supabase and notifies Discord.\n\n**Flow:**\nWebhook (POST /update-target) → Validate URL (Code node) → Save to Supabase (Postgres insert into targets) → Notify Discord → Respond { updated: true }\n\n**Supabase targets table:** Stores URL, display name, set_at timestamp, active flag. Dashboard reads the active=true row to show the current target.\n\n**Called by:** Dashboard Control page → Supabase PATCH (deactivate old) + POST (insert new active target). The n8n webhook is an additional sync path for external callers.\n\n**Note:** The targets table active=false update for old targets happens in the dashboard api.js before this webhook is called."
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 832],
+      "id": "645bd42e-f182-45d9-a18c-1aa65fa40385",
+      "name": "Sticky Note — Workflow D"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow E — Scheduled Surge Testing\n\n**Trigger:** Schedule Trigger every 2 hours\n\n**Purpose:** Automatically fires surge tests overnight and during off-hours without manual intervention. 50% random gate creates unpredictable timing that better simulates organic campaign spikes — roughly 1 surge every 4 hours on average.\n\n**Flow:**\nSurge schedule (2h) → Random surge gate (50% pass) → Dispatch scheduled surge (GitHub Action, surge mode) → Notify Discord\n\n**Discord notification:** Posts to #gamers-lab-monitor every time a surge fires so the team knows when automated testing happened.\n\n**Dashboard control:** Surge Schedule card on the Control page shows active/paused status. Interval can be adjusted by editing this node directly in n8n.\n\n**Use case:** Leave running overnight before a planned campaign launch to build up baseline surge data."
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 1056],
+      "id": "b0ba07fc-605e-4db1-8de4-1ac4085b573a",
+      "name": "Sticky Note — Workflow E"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow F — Scheduled One-Off Surge Events\n\n**Trigger:** POST /webhook/schedule-surge\n\n**Purpose:** Accepts a specific date/time for a future surge test (up to 15 days ahead). Saves it to the scheduled_surges table. Workflow G polls and fires it at the right time.\n\n**Flow:**\nWebhook (POST /schedule-surge) → Validate schedule (Code node — checks ISO date, validates within 15 days, not in past) → Save surge event (Postgres insert into scheduled_surges, status=pending) → Confirm Discord (posts scheduled confirmation) → Respond { scheduled: true, scheduledAt, label, delayMinutes }\n\n**Payload format:** { \"scheduledAt\": \"2026-06-15T14:00:00+10:00\", \"label\": \"itch new release day\" }\n\n**Called by:** Dashboard Control page → Surge Event Scheduler card → datetime picker + label field → Schedule surge button.\n\n**Use case:** Schedule a surge test to fire exactly when itch.io traffic is naturally high (e.g. new game release, Reddit post, influencer mention) to get real-world load test data."
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 1312],
+      "id": "f44a33c9-a401-44e3-89c1-60754f0f8299",
+      "name": "Sticky Note — Workflow F"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow G — Execute Scheduled Surge Events\n\n**Trigger:** Schedule Trigger every 1 minute\n\n**Purpose:** Polls the scheduled_surges table every minute. When a pending event's scheduled_at time arrives, fires the surge, marks it as fired, and notifies Discord.\n\n**Flow:**\nPoll schedule (1min) → Check due events (Postgres — finds pending rows where scheduled_at <= now + 1min AND >= now - 5min) → Any due? (IF node) → Fire surge (GitHub Action, surge mode) → Mark fired (Postgres UPDATE status=fired, fired_at=now) → Notify Discord (posts fired confirmation with event label)\n\n**Supabase scheduled_surges table:**\n- id, scheduled_at, label, status (pending/fired/cancelled), fired_at, created_at\n\n**Cancellation:** Dashboard cancel button PATCHes status=cancelled directly in Supabase — Workflow G ignores non-pending rows.\n\n**Edge case:** The 5-minute lookback window (scheduled_at >= now - 5min) catches events that were due but missed due to n8n downtime."
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 1648],
+      "id": "8703489e-b418-4c7f-867e-5e2b9cd1fd6c",
+      "name": "Sticky Note — Workflow G"
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] }
+      },
+      "id": "998256b2-6123-4f63-ba2e-148d311b0c32",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [736, 160]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ~30% fire rate — skip most ticks to create random interval effect\nif (Math.random() > 0.3) {\n  return [];\n}\nreturn [{ json: { proceed: true } }];"
+      },
+      "id": "090ccaa6-c312-4e8f-aac2-1def50ef0533",
+      "name": "Random gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 160]
+    },
+    {
+      "parameters": {
+        "resource": "workflow",
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
+        "ref": { "__rl": true, "value": "main", "mode": "list", "cachedResultName": "main" },
+        "inputs": "{ \"mode\": \"standard\" }"
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [1168, 160],
+      "id": "e601587f-8033-4994-9b63-c79d32181995",
+      "name": "Dispatch a workflow event",
+      "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "list", "cachedResultName": "Wonderland", "cachedResultUrl": "https://discord.com/channels/1066890817425387581" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor", "cachedResultUrl": "https://discord.com/channels/1066890817425387581/1514424075282550916" },
+        "content": "=❌ **ERROR IN WORKFLOW A — CHECK N8N & GITHUB**\n\n{{ $json.error }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1376, 160],
+      "id": "9ceef9a8-c74f-4207-8e77-246939cf7e81",
+      "name": "Send Error Message",
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "surge",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "edac9be2-7c30-44ff-bef5-d2ba9293aa4e",
+      "name": "Surge webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [736, 400],
+      "webhookId": "surge"
+    },
+    {
+      "parameters": {
+        "resource": "workflow",
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
+        "ref": { "__rl": true, "value": "main", "mode": "list", "cachedResultName": "main" },
+        "inputs": "{ \"mode\": \"surge\" }"
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [960, 400],
+      "id": "80805ead-1a55-4154-97e4-1f373f1334e9",
+      "name": "Dispatch a workflow event1",
+      "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"triggered\": true }",
+        "options": {}
+      },
+      "id": "8e42c619-46e6-40fa-909e-d5a9dcb95c37",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1184, 400]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 30 }] }
+      },
+      "id": "d9e48294-e02a-4cdd-82c6-02ca23475a80",
+      "name": "Alert schedule1",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [720, 656]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  COUNT(*) FILTER (WHERE status = 1) AS ok_count,\n  COUNT(*) FILTER (WHERE status = 0) AS failure_count,\n  COUNT(*) AS total_count,\n  ROUND(AVG(ttfb_ms)::numeric, 0) AS avg_ttfb,\n  MAX(checked_at) AS last_seen,\n  COUNT(*) FILTER (WHERE mode = 'surge') AS surge_count,\n  json_agg(json_build_object('region', region, 'ok', CASE WHEN status=1 THEN true ELSE false END, 'ttfb', ttfb_ms) ORDER BY checked_at DESC) AS recent\nFROM monitor_results\nWHERE checked_at > now() - interval '30 minutes'",
+        "options": {}
+      },
+      "id": "4e98482c-9133-4f35-96d2-ae470ea8d107",
+      "name": "Check status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [944, 656],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst ok = parseInt(row.ok_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst avgTtfb = parseInt(row.avg_ttfb) || 0;\nconst lastSeen = row.last_seen ? new Date(row.last_seen).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Melbourne' }) : 'n/a';\nconst surgeCount = parseInt(row.surge_count) || 0;\n\nif (total === 0) {\n  return [{ json: { message: '💀 **Monitor pipeline is down**\\n\\nNo results in the last 30 minutes.\\nhttps://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\nconst recent = row.recent || [];\nconst byRegion = {};\nfor (const r of recent) {\n  if (!byRegion[r.region]) byRegion[r.region] = { ok: 0, fail: 0, ttfbs: [] };\n  r.ok ? byRegion[r.region].ok++ : byRegion[r.region].fail++;\n  if (r.ttfb) byRegion[r.region].ttfbs.push(r.ttfb);\n}\n\nconst regionLines = Object.entries(byRegion).map(([reg, d]) => {\n  const tot = d.ok + d.fail;\n  const pct = tot ? Math.round(d.ok / tot * 100) : 0;\n  const avg = d.ttfbs.length ? Math.round(d.ttfbs.reduce((a,b)=>a+b,0)/d.ttfbs.length) : 0;\n  const icon = pct === 100 ? '🟢' : pct >= 80 ? '🟡' : '🔴';\n  return `${icon} ${reg} — ${pct}% · ${avg}ms`;\n}).join('\\n');\n\nconst statusIcon = failures === 0 ? '✅' : failures < 3 ? '⚠️' : '🚨';\nconst failLine = failures > 0 ? `\\n⚠️ **${failures} failures detected**` : '';\n\nreturn [{ json: { message: `${statusIcon} **GamersLab Monitor — 30 min report**\\n**${ok}/${total} checks passed** · avg ${avgTtfb}ms · last run ${lastSeen}${surgeCount > 0 ? ` · ${surgeCount} surge runs` : ''}${failLine}\\n\\n${regionLines}` } }];"
+      },
+      "id": "48a19415-fce0-4708-affe-65c9bd7ef048",
+      "name": "Evaluate status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1168, 656]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+        "content": "={{ $json.message }}",
+        "options": {}
+      },
+      "id": "200c418f-694a-412c-b631-4864adb088c9",
+      "name": "Send alert",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1392, 656],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "update-target",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a365a2b9-1117-40ba-9db8-a48a5a1819b2",
+      "name": "Target webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [704, 864],
+      "webhookId": "update-target"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url } }];"
+      },
+      "id": "165965a4-4279-4ea4-accb-0e650467735d",
+      "name": "Validate URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [928, 864]
+    },
+    {
+      "parameters": {
+        "schema": { "__rl": true, "mode": "list", "value": "public" },
+        "table": { "__rl": true, "value": "targets", "mode": "list", "cachedResultName": "targets" },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            { "column": "url", "value": "={{ $json.url }}" },
+            { "column": "name", "value": "={{ $json.name }}" },
+            { "column": "set_at", "value": "={{ new Date().toISOString() }}" },
+            { "column": "active", "value": "true" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d43fed26-e228-4197-b12b-c0225b5ade60",
+      "name": "Save to Supabase",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1152, 864],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "list", "cachedResultName": "Wonderland", "cachedResultUrl": "https://discord.com/channels/1066890817425387581" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor", "cachedResultUrl": "https://discord.com/channels/1066890817425387581/1514424075282550916" },
+        "content": "=🎯 Monitor target updated\nURL: {{ $json.url }}\nName: {{ $json.name }}",
+        "options": {}
+      },
+      "id": "b924cc92-ef39-42ba-b7e2-5896824aec6e",
+      "name": "Notify Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1376, 864],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"updated\": true }",
+        "options": {}
+      },
+      "id": "f888258d-557d-4067-93f2-fb29f96faa52",
+      "name": "Respond1",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1568, 864]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] }
+      },
+      "id": "617b9040-a0eb-4d8e-8a52-ff0ad822232d",
+      "name": "Surge schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [704, 1088]
+    },
+    {
+      "parameters": {
+        "jsCode": "if (Math.random() > 0.5) { return []; }\nreturn [{ json: { proceed: true } }];"
+      },
+      "id": "5f54f73e-35d3-4e6a-9614-3ae879cfcfab",
+      "name": "Random surge gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [928, 1088]
+    },
+    {
+      "parameters": {
+        "resource": "workflow",
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
+        "inputs": "{ \"mode\": \"surge\" }"
+      },
+      "id": "099c8d44-80b6-47e0-b086-d071df05f3f0",
+      "name": "Dispatch scheduled surge",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [1152, 1088],
+      "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+        "content": "⚡ **Scheduled surge test fired**\n\nAutomated campaign spike simulation starting across all 6 regions.",
+        "options": {}
+      },
+      "id": "91bcb3c9-cc42-4fa7-8439-bce53f6abca4",
+      "name": "Notify Discord1",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1376, 1088],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "schedule-surge",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f967bdf3-a1b0-4b21-abed-360a888d011a",
+      "name": "Schedule surge webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [704, 1344],
+      "webhookId": "schedule-surge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { scheduledAt, label } = $input.first().json.body;\nif (!scheduledAt) throw new Error('scheduledAt is required (ISO 8601)');\n\nconst fireAt = new Date(scheduledAt);\nconst now = new Date();\nconst delayMs = fireAt.getTime() - now.getTime();\n\nif (delayMs < 0) throw new Error('scheduledAt must be in the future');\nif (delayMs > 15 * 24 * 60 * 60 * 1000) throw new Error('scheduledAt must be within 15 days');\n\nreturn [{ json: {\n  scheduledAt: fireAt.toISOString(),\n  label: label || 'Scheduled surge',\n  delayMs,\n  delayMinutes: Math.round(delayMs / 60000)\n} }];"
+      },
+      "id": "3a4f0881-4a29-4c00-a971-b459f7a1dd8c",
+      "name": "Validate schedule",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [928, 1344]
+    },
+    {
+      "parameters": {
+        "schema": { "__rl": true, "value": "public", "mode": "list" },
+        "table": { "__rl": true, "value": "scheduled_surges", "mode": "list", "cachedResultName": "scheduled_surges" },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            { "column": "scheduled_at", "value": "={{ $json.scheduledAt }}" },
+            { "column": "label", "value": "={{ $json.label }}" },
+            { "column": "status", "value": "pending" },
+            { "column": "created_at", "value": "={{ new Date().toISOString() }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7dd5f21e-a09a-472a-b977-6e3b659e1935",
+      "name": "Save surge event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1152, 1344],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+        "content": "=📅 **Surge event scheduled**\n\n**Label:** {{ $json.label }}\n**Fires at:** {{ $json.scheduledAt }}\n**In:** {{ $json.delayMinutes }} minutes",
+        "options": {}
+      },
+      "id": "5a945844-69b3-4d26-86af-207859b3de71",
+      "name": "Confirm Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1376, 1344],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ scheduled: true, scheduledAt: $json.scheduledAt, label: $json.label, delayMinutes: $json.delayMinutes }) }}",
+        "options": {}
+      },
+      "id": "8160f1b8-5b29-4444-9dd9-6e1c314dcbfc",
+      "name": "Respond2",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1568, 1344]
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 1 }] }
+      },
+      "id": "4d0f3a2a-7c36-4419-9a4e-c18977de9814",
+      "name": "Poll schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [704, 1696]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, scheduled_at, label FROM scheduled_surges\nWHERE status = 'pending'\nAND scheduled_at <= now() + interval '1 minute'\nAND scheduled_at >= now() - interval '5 minutes'\nORDER BY scheduled_at ASC\nLIMIT 5",
+        "options": {}
+      },
+      "id": "7c98b4b9-bdab-4c24-86e2-bfdf444a64b8",
+      "name": "Check due events",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [928, 1696],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [{ "value1": "={{ $items().length }}", "operation": "larger", "value2": 0 }]
+        }
+      },
+      "id": "c235e3c8-4041-490a-bd75-20436704c451",
+      "name": "Any due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1152, 1696]
+    },
+    {
+      "parameters": {
+        "resource": "workflow",
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
+        "inputs": "{ \"mode\": \"surge\" }"
+      },
+      "id": "3a8a3166-557a-4c16-bb1b-4f9c827f398d",
+      "name": "Fire surge",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [1360, 1616],
+      "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scheduled_surges SET status = 'fired', fired_at = now() WHERE id = {{ $json.id }}",
+        "options": {}
+      },
+      "id": "47a64d46-8387-4303-9388-fd4516c78588",
+      "name": "Mark fired",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1584, 1616],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+        "content": "=⚡ **Scheduled surge fired**\n\n**Event:** {{ $json.label }}\n**Scheduled for:** {{ $json.scheduled_at }}\n\nSurge test running across all 6 regions now.",
+        "options": {}
+      },
+      "id": "44049edc-6f90-450f-8af0-d0ed75bad4a4",
+      "name": "Notify Discord2",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1808, 1616],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": { "main": [[{ "node": "Random gate", "type": "main", "index": 0 }]] },
+    "Random gate": { "main": [[{ "node": "Dispatch a workflow event", "type": "main", "index": 0 }]] },
+    "Dispatch a workflow event": { "main": [[{ "node": "Send Error Message", "type": "main", "index": 0 }]] },
+    "Surge webhook": { "main": [[{ "node": "Dispatch a workflow event1", "type": "main", "index": 0 }]] },
+    "Dispatch a workflow event1": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] },
+    "Alert schedule1": { "main": [[{ "node": "Check status", "type": "main", "index": 0 }]] },
+    "Check status": { "main": [[{ "node": "Evaluate status", "type": "main", "index": 0 }]] },
+    "Evaluate status": { "main": [[{ "node": "Send alert", "type": "main", "index": 0 }]] },
+    "Target webhook": { "main": [[{ "node": "Validate URL", "type": "main", "index": 0 }]] },
+    "Validate URL": { "main": [[{ "node": "Save to Supabase", "type": "main", "index": 0 }]] },
+    "Save to Supabase": { "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]] },
+    "Notify Discord": { "main": [[{ "node": "Respond1", "type": "main", "index": 0 }]] },
+    "Surge schedule": { "main": [[{ "node": "Random surge gate", "type": "main", "index": 0 }]] },
+    "Random surge gate": { "main": [[{ "node": "Dispatch scheduled surge", "type": "main", "index": 0 }]] },
+    "Dispatch scheduled surge": { "main": [[{ "node": "Notify Discord1", "type": "main", "index": 0 }]] },
+    "Schedule surge webhook": { "main": [[{ "node": "Validate schedule", "type": "main", "index": 0 }]] },
+    "Validate schedule": { "main": [[{ "node": "Save surge event", "type": "main", "index": 0 }]] },
+    "Save surge event": { "main": [[{ "node": "Confirm Discord", "type": "main", "index": 0 }]] },
+    "Confirm Discord": { "main": [[{ "node": "Respond2", "type": "main", "index": 0 }]] },
+    "Poll schedule": { "main": [[{ "node": "Check due events", "type": "main", "index": 0 }]] },
+    "Check due events": { "main": [[{ "node": "Any due?", "type": "main", "index": 0 }]] },
+    "Any due?": { "main": [[{ "node": "Fire surge", "type": "main", "index": 0 }], []] },
+    "Fire surge": { "main": [[{ "node": "Mark fired", "type": "main", "index": 0 }]] },
+    "Mark fired": { "main": [[{ "node": "Notify Discord2", "type": "main", "index": 0 }]] }
   },
-  {
-    "name": "Workflow B — Campaign surge webhook",
-    "nodes": [
-      {
-        "parameters": {
-          "httpMethod": "POST",
-          "path": "surge",
-          "responseMode": "responseNode",
-          "options": {}
-        },
-        "id": "surge-webhook",
-        "name": "Surge webhook",
-        "type": "n8n-nodes-base.webhook",
-        "typeVersion": 1,
-        "position": [240, 300],
-        "webhookId": "surge"
-      },
-      {
-        "parameters": {
-          "resource": "workflowDispatch",
-          "owner": "={{ $env.GITHUB_REPO_OWNER }}",
-          "repository": "={{ $env.GITHUB_REPO_NAME }}",
-          "workflowId": "monitor.yml",
-          "ref": "main",
-          "additionalFields": {
-            "inputs": {
-              "inputsUi": {
-                "inputValues": [
-                  { "name": "mode", "value": "surge" },
-                  {
-                    "name": "regions",
-                    "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south"
-                  }
-                ]
-              }
-            }
-          }
-        },
-        "id": "dispatch-surge",
-        "name": "Dispatch surge run",
-        "type": "n8n-nodes-base.github",
-        "typeVersion": 1,
-        "position": [460, 300],
-        "credentials": {
-          "githubApi": {
-            "id": "QYTeIJkdqrhQltwn",
-            "name": "GitHub DeveloperAlly"
-          }
-        }
-      },
-      {
-        "parameters": {
-          "respondWith": "json",
-          "responseBody": "={ \"triggered\": true }",
-          "options": {}
-        },
-        "id": "respond",
-        "name": "Respond",
-        "type": "n8n-nodes-base.respondToWebhook",
-        "typeVersion": 1,
-        "position": [680, 300]
-      }
-    ],
-    "connections": {
-      "Surge webhook": {
-        "main": [[{ "node": "Dispatch surge run", "type": "main", "index": 0 }]]
-      },
-      "Dispatch surge run": {
-        "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
-      }
-    },
-    "settings": { "executionOrder": "v1" }
-  },
-  {
-    "name": "Workflow C — Stats + alerting (Discord)",
-    "nodes": [
-      {
-        "parameters": {
-          "rule": {
-            "interval": [{ "field": "minutes", "minutesInterval": 30 }]
-          }
-        },
-        "id": "alert-schedule",
-        "name": "Alert schedule",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1,
-        "position": [240, 300]
-      },
-      {
-        "parameters": {
-          "operation": "executeQuery",
-          "query": "SELECT\n  COUNT(*) FILTER (WHERE status = 1) AS ok_count,\n  COUNT(*) FILTER (WHERE status = 0) AS failure_count,\n  COUNT(*) AS total_count,\n  ROUND(AVG(ttfb_ms)::numeric, 0) AS avg_ttfb,\n  MAX(checked_at) AS last_seen,\n  COUNT(*) FILTER (WHERE mode = 'surge') AS surge_count,\n  json_agg(json_build_object('region', region, 'ok', CASE WHEN status=1 THEN true ELSE false END, 'ttfb', ttfb_ms, 'colo', cf_colo) ORDER BY checked_at DESC) FILTER (WHERE checked_at > now() - interval '30 minutes') AS recent\nFROM monitor_results\nWHERE checked_at > now() - interval '30 minutes'",
-          "options": {}
-        },
-        "id": "check-status",
-        "name": "Check status",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2,
-        "position": [460, 300],
-        "credentials": {
-          "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
-        }
-      },
-      {
-        "parameters": {
-          "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst ok = parseInt(row.ok_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst avgTtfb = parseInt(row.avg_ttfb) || 0;\nconst lastSeen = row.last_seen ? new Date(row.last_seen).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Melbourne' }) : 'n/a';\nconst surgeCount = parseInt(row.surge_count) || 0;\n\n// Pipeline dead\nif (total === 0) {\n  return [{ json: { message: '💀 **Monitor pipeline is down**\\n\\nNo results in the last 30 minutes. GitHub Actions may have stopped.\\n\\nhttps://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\n// Build per-region summary from recent runs\nconst recent = row.recent || [];\nconst byRegion = {};\nfor (const r of recent) {\n  if (!byRegion[r.region]) byRegion[r.region] = { ok: 0, fail: 0, ttfbs: [] };\n  r.ok ? byRegion[r.region].ok++ : byRegion[r.region].fail++;\n  if (r.ttfb) byRegion[r.region].ttfbs.push(r.ttfb);\n}\n\nconst regionLines = Object.entries(byRegion).map(([reg, d]) => {\n  const tot = d.ok + d.fail;\n  const pct = tot ? Math.round(d.ok / tot * 100) : 0;\n  const avg = d.ttfbs.length ? Math.round(d.ttfbs.reduce((a,b)=>a+b,0)/d.ttfbs.length) : 0;\n  const icon = pct === 100 ? '🟢' : pct >= 80 ? '🟡' : '🔴';\n  return `${icon} ${reg} — ${pct}% uptime · ${avg}ms avg`;\n}).join('\\n');\n\nconst statusIcon = failures === 0 ? '✅' : failures < 3 ? '⚠️' : '🚨';\nconst header = `${statusIcon} **GamersLab Monitor — 30 min report**`;\nconst summary = `**Checks:** ${ok}/${total} passed · **Avg TTFB:** ${avgTtfb}ms · **Last run:** ${lastSeen}${surgeCount > 0 ? ` · **Surge runs:** ${surgeCount}` : ''}`;\nconst failLine = failures > 0 ? `\\n⚠️ **${failures} failures detected**` : '';\n\nreturn [{ json: { message: `${header}\\n${summary}${failLine}\\n\\n${regionLines}` } }];"
-        },
-        "id": "evaluate-status",
-        "name": "Build report",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [680, 300]
-      },
-      {
-        "parameters": {
-          "resource": "message",
-          "guildId": {
-            "__rl": true,
-            "value": "1066890817425387581",
-            "mode": "id"
-          },
-          "channelId": {
-            "__rl": true,
-            "value": "1514424075282550916",
-            "mode": "list",
-            "cachedResultName": "gamers-lab-monitor"
-          },
-          "content": "={{ $json.message }}",
-          "options": {}
-        },
-        "id": "discord-alert",
-        "name": "Send report",
-        "type": "n8n-nodes-base.discord",
-        "typeVersion": 2,
-        "position": [900, 300],
-        "credentials": {
-          "discordBotApi": {
-            "id": "TjYM6pZNQ2PGSVmG",
-            "name": "Discord Bot GamersLab"
-          }
-        }
-      }
-    ],
-    "connections": {
-      "Alert schedule": {
-        "main": [[{ "node": "Check status", "type": "main", "index": 0 }]]
-      },
-      "Check status": {
-        "main": [[{ "node": "Build report", "type": "main", "index": 0 }]]
-      },
-      "Build report": {
-        "main": [[{ "node": "Send report", "type": "main", "index": 0 }]]
-      }
-    },
-    "settings": { "executionOrder": "v1" }
-  },
-  {
-    "name": "Workflow D — Target URL sync",
-    "nodes": [
-      {
-        "parameters": {
-          "httpMethod": "POST",
-          "path": "update-target",
-          "responseMode": "responseNode",
-          "options": {}
-        },
-        "id": "target-webhook",
-        "name": "Target webhook",
-        "type": "n8n-nodes-base.webhook",
-        "typeVersion": 1,
-        "position": [240, 300],
-        "webhookId": "update-target"
-      },
-      {
-        "parameters": {
-          "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url, set_at: new Date().toISOString(), active: true } }];"
-        },
-        "id": "validate-url",
-        "name": "Validate URL",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [460, 300]
-      },
-      {
-        "parameters": {
-          "operation": "insert",
-          "schema": { "__rl": true, "value": "public", "mode": "list" },
-          "table": {
-            "__rl": true,
-            "value": "targets",
-            "mode": "list",
-            "cachedResultName": "targets"
-          },
-          "dataMode": "autoMapInputData",
-          "options": {}
-        },
-        "id": "save-to-supabase",
-        "name": "Save to Supabase",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2,
-        "position": [680, 300],
-        "credentials": {
-          "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
-        }
-      },
-      {
-        "parameters": {
-          "resource": "message",
-          "guildId": {
-            "__rl": true,
-            "value": "1066890817425387581",
-            "mode": "id"
-          },
-          "channelId": {
-            "__rl": true,
-            "value": "1514424075282550916",
-            "mode": "list",
-            "cachedResultName": "gamers-lab-monitor"
-          },
-          "content": "=🎯 **Monitor target updated**\n\n**URL:** {{ $json.url }}\n**Name:** {{ $json.name }}",
-          "options": {}
-        },
-        "id": "notify-discord",
-        "name": "Notify Discord",
-        "type": "n8n-nodes-base.discord",
-        "typeVersion": 2,
-        "position": [900, 300],
-        "credentials": {
-          "discordBotApi": {
-            "id": "TjYM6pZNQ2PGSVmG",
-            "name": "Discord Bot GamersLab"
-          }
-        }
-      },
-      {
-        "parameters": {
-          "respondWith": "json",
-          "responseBody": "={ \"updated\": true }",
-          "options": {}
-        },
-        "id": "respond-target",
-        "name": "Respond",
-        "type": "n8n-nodes-base.respondToWebhook",
-        "typeVersion": 1,
-        "position": [1100, 300]
-      }
-    ],
-    "connections": {
-      "Target webhook": {
-        "main": [[{ "node": "Validate URL", "type": "main", "index": 0 }]]
-      },
-      "Validate URL": {
-        "main": [[{ "node": "Save to Supabase", "type": "main", "index": 0 }]]
-      },
-      "Save to Supabase": {
-        "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
-      },
-      "Notify Discord": {
-        "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
-      }
-    },
-    "settings": { "executionOrder": "v1" }
-  },
-  {
-    "name": "Workflow E — Scheduled surge testing",
-    "nodes": [
-      {
-        "parameters": {
-          "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] }
-        },
-        "id": "surge-schedule",
-        "name": "Surge schedule",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1,
-        "position": [240, 300]
-      },
-      {
-        "parameters": {
-          "jsCode": "if (Math.random() > 0.5) { return []; }\nreturn [{ json: { proceed: true } }];"
-        },
-        "id": "surge-gate",
-        "name": "Random surge gate",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [460, 300]
-      },
-      {
-        "parameters": {
-          "resource": "workflowDispatch",
-          "owner": "={{ $env.GITHUB_REPO_OWNER }}",
-          "repository": "={{ $env.GITHUB_REPO_NAME }}",
-          "workflowId": "monitor.yml",
-          "ref": "main",
-          "additionalFields": {
-            "inputs": {
-              "inputsUi": {
-                "inputValues": [
-                  { "name": "mode", "value": "surge" },
-                  {
-                    "name": "regions",
-                    "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south"
-                  }
-                ]
-              }
-            }
-          }
-        },
-        "id": "dispatch-scheduled-surge",
-        "name": "Dispatch scheduled surge",
-        "type": "n8n-nodes-base.github",
-        "typeVersion": 1,
-        "position": [680, 300],
-        "credentials": {
-          "githubApi": {
-            "id": "QYTeIJkdqrhQltwn",
-            "name": "GitHub DeveloperAlly"
-          }
-        }
-      },
-      {
-        "parameters": {
-          "resource": "message",
-          "guildId": {
-            "__rl": true,
-            "value": "1066890817425387581",
-            "mode": "id"
-          },
-          "channelId": {
-            "__rl": true,
-            "value": "1514424075282550916",
-            "mode": "list",
-            "cachedResultName": "gamers-lab-monitor"
-          },
-          "content": "⚡ **Scheduled surge test fired**\n\nAutomated campaign spike simulation starting across all 6 regions.",
-          "options": {}
-        },
-        "id": "surge-notify",
-        "name": "Notify Discord",
-        "type": "n8n-nodes-base.discord",
-        "typeVersion": 2,
-        "position": [900, 300],
-        "credentials": {
-          "discordBotApi": {
-            "id": "TjYM6pZNQ2PGSVmG",
-            "name": "Discord Bot GamersLab"
-          }
-        }
-      }
-    ],
-    "connections": {
-      "Surge schedule": {
-        "main": [[{ "node": "Random surge gate", "type": "main", "index": 0 }]]
-      },
-      "Random surge gate": {
-        "main": [
-          [{ "node": "Dispatch scheduled surge", "type": "main", "index": 0 }]
-        ]
-      },
-      "Dispatch scheduled surge": {
-        "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
-      }
-    },
-    "settings": { "executionOrder": "v1" }
-  },
-  {
-    "name": "Workflow F — Scheduled one-off surge events",
-    "nodes": [
-      {
-        "parameters": {
-          "httpMethod": "POST",
-          "path": "schedule-surge",
-          "responseMode": "responseNode",
-          "options": {}
-        },
-        "id": "schedule-surge-webhook",
-        "name": "Schedule surge webhook",
-        "type": "n8n-nodes-base.webhook",
-        "typeVersion": 1,
-        "position": [240, 300],
-        "webhookId": "schedule-surge"
-      },
-      {
-        "parameters": {
-          "jsCode": "// Expects: { scheduledAt: '2026-06-15T14:00:00+10:00', label: 'itch launch event' }\nconst { scheduledAt, label } = $input.first().json.body;\nif (!scheduledAt) throw new Error('scheduledAt is required (ISO 8601)');\n\nconst fireAt = new Date(scheduledAt);\nconst now = new Date();\nconst delayMs = fireAt.getTime() - now.getTime();\n\nif (delayMs < 0) throw new Error('scheduledAt must be in the future');\nif (delayMs > 15 * 24 * 60 * 60 * 1000) throw new Error('scheduledAt must be within 15 days');\n\n// Store the scheduled event in Supabase via output — downstream Postgres node handles insert\nreturn [{ json: { \n  scheduledAt: fireAt.toISOString(),\n  label: label || 'Scheduled surge',\n  delayMs,\n  delayMinutes: Math.round(delayMs / 60000)\n} }];"
-        },
-        "id": "validate-schedule",
-        "name": "Validate schedule",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [460, 300]
-      },
-      {
-        "parameters": {
-          "operation": "insert",
-          "schema": { "__rl": true, "value": "public", "mode": "list" },
-          "table": {
-            "__rl": true,
-            "value": "scheduled_surges",
-            "mode": "list",
-            "cachedResultName": "scheduled_surges"
-          },
-          "dataMode": "defineBelow",
-          "valuesToSend": {
-            "values": [
-              { "column": "scheduled_at", "value": "={{ $json.scheduledAt }}" },
-              { "column": "label", "value": "={{ $json.label }}" },
-              { "column": "status", "value": "pending" },
-              {
-                "column": "created_at",
-                "value": "={{ new Date().toISOString() }}"
-              }
-            ]
-          },
-          "options": {}
-        },
-        "id": "save-surge-event",
-        "name": "Save surge event",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2,
-        "position": [680, 300],
-        "credentials": {
-          "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
-        }
-      },
-      {
-        "parameters": {
-          "resource": "message",
-          "guildId": {
-            "__rl": true,
-            "value": "1066890817425387581",
-            "mode": "id"
-          },
-          "channelId": {
-            "__rl": true,
-            "value": "1514424075282550916",
-            "mode": "list",
-            "cachedResultName": "gamers-lab-monitor"
-          },
-          "content": "=📅 **Surge event scheduled**\n\n**Label:** {{ $json.label }}\n**Fires at:** {{ $json.scheduledAt }}\n**In:** {{ $json.delayMinutes }} minutes",
-          "options": {}
-        },
-        "id": "confirm-discord",
-        "name": "Confirm Discord",
-        "type": "n8n-nodes-base.discord",
-        "typeVersion": 2,
-        "position": [900, 300],
-        "credentials": {
-          "discordBotApi": {
-            "id": "TjYM6pZNQ2PGSVmG",
-            "name": "Discord Bot GamersLab"
-          }
-        }
-      },
-      {
-        "parameters": {
-          "respondWith": "json",
-          "responseBody": "={{ JSON.stringify({ scheduled: true, scheduledAt: $json.scheduledAt, label: $json.label, delayMinutes: $json.delayMinutes }) }}",
-          "options": {}
-        },
-        "id": "respond-schedule",
-        "name": "Respond",
-        "type": "n8n-nodes-base.respondToWebhook",
-        "typeVersion": 1,
-        "position": [1100, 300]
-      }
-    ],
-    "connections": {
-      "Schedule surge webhook": {
-        "main": [[{ "node": "Validate schedule", "type": "main", "index": 0 }]]
-      },
-      "Validate schedule": {
-        "main": [[{ "node": "Save surge event", "type": "main", "index": 0 }]]
-      },
-      "Save surge event": {
-        "main": [[{ "node": "Confirm Discord", "type": "main", "index": 0 }]]
-      },
-      "Confirm Discord": {
-        "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
-      }
-    },
-    "settings": { "executionOrder": "v1" }
-  },
-  {
-    "name": "Workflow G — Execute scheduled surge events",
-    "nodes": [
-      {
-        "parameters": {
-          "rule": { "interval": [{ "field": "minutes", "minutesInterval": 1 }] }
-        },
-        "id": "poll-schedule",
-        "name": "Poll schedule",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1,
-        "position": [240, 300]
-      },
-      {
-        "parameters": {
-          "operation": "executeQuery",
-          "query": "SELECT id, scheduled_at, label FROM scheduled_surges\nWHERE status = 'pending'\nAND scheduled_at <= now() + interval '1 minute'\nAND scheduled_at >= now() - interval '5 minutes'\nORDER BY scheduled_at ASC\nLIMIT 5",
-          "options": {}
-        },
-        "id": "check-due",
-        "name": "Check due events",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2,
-        "position": [460, 300],
-        "credentials": {
-          "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
-        }
-      },
-      {
-        "parameters": {
-          "conditions": {
-            "number": [
-              {
-                "value1": "={{ $items().length }}",
-                "operation": "larger",
-                "value2": 0
-              }
-            ]
-          }
-        },
-        "id": "any-due",
-        "name": "Any due?",
-        "type": "n8n-nodes-base.if",
-        "typeVersion": 1,
-        "position": [680, 300]
-      },
-      {
-        "parameters": {
-          "resource": "workflowDispatch",
-          "owner": "={{ $env.GITHUB_REPO_OWNER }}",
-          "repository": "={{ $env.GITHUB_REPO_NAME }}",
-          "workflowId": "monitor.yml",
-          "ref": "main",
-          "additionalFields": {
-            "inputs": {
-              "inputsUi": {
-                "inputValues": [
-                  { "name": "mode", "value": "surge" },
-                  {
-                    "name": "regions",
-                    "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south"
-                  }
-                ]
-              }
-            }
-          }
-        },
-        "id": "fire-surge",
-        "name": "Fire surge",
-        "type": "n8n-nodes-base.github",
-        "typeVersion": 1,
-        "position": [900, 220],
-        "credentials": {
-          "githubApi": {
-            "id": "QYTeIJkdqrhQltwn",
-            "name": "GitHub DeveloperAlly"
-          }
-        }
-      },
-      {
-        "parameters": {
-          "operation": "executeQuery",
-          "query": "UPDATE scheduled_surges SET status = 'fired', fired_at = now() WHERE id = {{ $json.id }}",
-          "options": {}
-        },
-        "id": "mark-fired",
-        "name": "Mark fired",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2,
-        "position": [1120, 220],
-        "credentials": {
-          "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
-        }
-      },
-      {
-        "parameters": {
-          "resource": "message",
-          "guildId": {
-            "__rl": true,
-            "value": "1066890817425387581",
-            "mode": "id"
-          },
-          "channelId": {
-            "__rl": true,
-            "value": "1514424075282550916",
-            "mode": "list",
-            "cachedResultName": "gamers-lab-monitor"
-          },
-          "content": "=⚡ **Scheduled surge fired**\n\n**Event:** {{ $json.label }}\n**Scheduled for:** {{ $json.scheduled_at }}\n\nSurge test running across all 6 regions now.",
-          "options": {}
-        },
-        "id": "fire-discord",
-        "name": "Notify Discord",
-        "type": "n8n-nodes-base.discord",
-        "typeVersion": 2,
-        "position": [1340, 220],
-        "credentials": {
-          "discordBotApi": {
-            "id": "TjYM6pZNQ2PGSVmG",
-            "name": "Discord Bot GamersLab"
-          }
-        }
-      }
-    ],
-    "connections": {
-      "Poll schedule": {
-        "main": [[{ "node": "Check due events", "type": "main", "index": 0 }]]
-      },
-      "Check due events": {
-        "main": [[{ "node": "Any due?", "type": "main", "index": 0 }]]
-      },
-      "Any due?": {
-        "main": [[{ "node": "Fire surge", "type": "main", "index": 0 }], []]
-      },
-      "Fire surge": {
-        "main": [[{ "node": "Mark fired", "type": "main", "index": 0 }]]
-      },
-      "Mark fired": {
-        "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
-      }
-    },
-    "settings": { "executionOrder": "v1" }
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b77ce31e344450acd6ad20bd6cde79f46c1e07d55921483122bfba86e8350352"
   }
-]
+}
