@@ -24,10 +24,14 @@ function Btn({ children, onClick, variant = 'default', disabled, style, fullWidt
   return <button onClick={onClick} disabled={disabled} style={{ ...base, ...variants[variant], ...style }}>{children}</button>
 }
 
-function Toggle({ on, onChange, disabled }) {
+function Toggle({ on, onChange, disabled, loading }) {
   return (
-    <div onClick={() => !disabled && onChange(!on)} style={{ width: 32, height: 18, background: on ? 'var(--acc)' : 'var(--s3)', borderRadius: 9, position: 'relative', cursor: disabled ? 'not-allowed' : 'pointer', flexShrink: 0, transition: 'background .2s', opacity: disabled ? .5 : 1 }}>
-      <div style={{ width: 14, height: 14, background: '#fff', borderRadius: '50%', position: 'absolute', top: 2, left: on ? 16 : 2, transition: 'left .15s' }} />
+    <div onClick={() => !disabled && !loading && onChange(!on)}
+      style={{ width: 32, height: 18, background: on ? 'var(--acc)' : 'var(--s3)', borderRadius: 9, position: 'relative', cursor: disabled || loading ? 'not-allowed' : 'pointer', flexShrink: 0, transition: 'background .2s', opacity: disabled ? .5 : 1 }}>
+      {loading
+        ? <div style={{ width: 12, height: 12, border: '1.5px solid rgba(0,0,0,.3)', borderTopColor: '#000', borderRadius: '50%', position: 'absolute', top: 3, left: on ? 17 : 3, animation: 'spin .7s linear infinite' }} />
+        : <div style={{ width: 14, height: 14, background: '#fff', borderRadius: '50%', position: 'absolute', top: 2, left: on ? 16 : 2, transition: 'left .15s' }} />
+      }
     </div>
   )
 }
@@ -49,14 +53,21 @@ function Status({ status }) {
 
 function Input({ value, onChange, placeholder, type = 'text' }) {
   return (
-    <input
-      type={type} value={value} onChange={onChange} placeholder={placeholder}
+    <input type={type} value={value} onChange={onChange} placeholder={placeholder}
       style={{ width: '100%', padding: '8px 11px', borderRadius: 7, border: '0.5px solid var(--b2)', background: 'var(--s2)', color: 'var(--tx)', fontSize: 11, outline: 'none', transition: 'border-color .15s' }}
       onFocus={e => e.target.style.borderColor = 'var(--acc)'}
       onBlur={e => e.target.style.borderColor = 'var(--b2)'}
     />
   )
 }
+
+const INTERVAL_OPTIONS = [
+  { label: 'Every 1 min', value: 1 },
+  { label: 'Every 5 min', value: 5 },
+  { label: 'Every 15 min', value: 15 },
+  { label: 'Every 30 min', value: 30 },
+  { label: 'Every hour', value: 60 },
+]
 
 export default function ControlPage() {
   const [triggerStatus, setTriggerStatus] = useState(null)
@@ -70,13 +81,21 @@ export default function ControlPage() {
   const [notifyFailures, setNotifyFailures] = useState(true)
   const [notifyEveryRun, setNotifyEveryRun] = useState(false)
   const [notifySurge, setNotifySurge] = useState(true)
-  const [randomEnabled, setRandomEnabled] = useState(true)
-  const [campaignEnabled, setCampaignEnabled] = useState(true)
-  const [scheduleInterval, setScheduleInterval] = useState('5')
+
+  // Live n8n schedule state
+  const [workflowActive, setWorkflowActive] = useState(null)
+  const [intervalMinutes, setIntervalMinutes] = useState(5)
+  const [scheduleLoading, setScheduleLoading] = useState(true)
+  const [scheduleStatus, setScheduleStatus] = useState(null)
+  const [toggleLoading, setToggleLoading] = useState(false)
 
   useEffect(() => {
     api.activeTarget().then(t => { setActiveTarget(t); setTargetUrl(t?.url || ''); setTargetName(t?.name || '') }).catch(() => {})
     api.targets().then(setSavedTargets).catch(() => {})
+    api.getWorkflowStatus()
+      .then(s => { setWorkflowActive(s.active); setIntervalMinutes(s.intervalMinutes || 5) })
+      .catch(() => setWorkflowActive(null))
+      .finally(() => setScheduleLoading(false))
   }, [])
 
   async function runStandard() {
@@ -89,6 +108,28 @@ export default function ControlPage() {
     setSurgeStatus({ type: 'loading', msg: 'Dispatching surge…' })
     try { await api.trigger('surge'); setSurgeStatus({ type: 'success', msg: 'Surge dispatched — 20 concurrent requests per region' }) }
     catch (e) { setSurgeStatus({ type: 'error', msg: e.message }) }
+  }
+
+  async function toggleWorkflow(active) {
+    setToggleLoading(true)
+    try {
+      active ? await api.activateWorkflow() : await api.deactivateWorkflow()
+      setWorkflowActive(active)
+      setScheduleStatus({ type: 'success', msg: active ? 'Scheduler activated' : 'Scheduler paused' })
+    } catch (e) {
+      setScheduleStatus({ type: 'error', msg: e.message })
+    }
+    setToggleLoading(false)
+  }
+
+  async function saveSchedule() {
+    setScheduleStatus({ type: 'loading', msg: 'Updating schedule…' })
+    try {
+      await api.setSchedule(intervalMinutes)
+      setScheduleStatus({ type: 'success', msg: `Schedule updated — checks every ${intervalMinutes} min` })
+    } catch (e) {
+      setScheduleStatus({ type: 'error', msg: e.message })
+    }
   }
 
   async function updateTarget() {
@@ -116,7 +157,6 @@ export default function ControlPage() {
       {/* LEFT */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-        {/* triggers */}
         <Card>
           <Label>triggers</Label>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -138,54 +178,45 @@ export default function ControlPage() {
           <Status status={surgeStatus} />
         </Card>
 
-        {/* schedule */}
         <Card>
           <Label>schedule</Label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-            <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500 }}>Random interval</div>
-                  <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>~30% of 5-min ticks · n8n Workflow A</div>
+          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px', marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, fontWeight: 500 }}>Random interval scheduler</div>
+                <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>
+                  {scheduleLoading ? 'Loading status…' : workflowActive === null ? 'Status unavailable' : workflowActive ? `Active · every ${intervalMinutes} min · ~30% fire rate` : 'Paused'}
                 </div>
-                <Toggle on={randomEnabled} onChange={setRandomEnabled} />
               </div>
+              <Toggle on={workflowActive === true} onChange={toggleWorkflow} loading={toggleLoading} disabled={scheduleLoading || workflowActive === null} />
             </div>
-            <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500 }}>Campaign surge</div>
-                  <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>POST /webhook/surge · n8n Workflow B</div>
-                </div>
-                <Toggle on={campaignEnabled} onChange={setCampaignEnabled} />
-              </div>
-            </div>
-          </div>
-          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '10px 12px' }}>
-            <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8 }}>Check frequency</div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <select value={scheduleInterval} onChange={e => setScheduleInterval(e.target.value)}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select value={intervalMinutes} onChange={e => setIntervalMinutes(parseInt(e.target.value))}
                 style={{ flex: 1, fontSize: 11, padding: '7px 10px', borderRadius: 6, border: '0.5px solid var(--b2)', background: 'var(--s1)', color: 'var(--tx)', outline: 'none' }}>
-                <option value="5">Every 5 min</option>
-                <option value="15">Every 15 min</option>
-                <option value="30">Every 30 min</option>
-                <option value="60">Every hour</option>
+                {INTERVAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               <select style={{ flex: 1, fontSize: 11, padding: '7px 10px', borderRadius: 6, border: '0.5px solid var(--b2)', background: 'var(--s1)', color: 'var(--tx)', outline: 'none' }}>
                 <option>All 6 regions</option>
                 <option>US + EU only</option>
                 <option>APAC + SA + ME + AF</option>
               </select>
+              <Btn onClick={saveSchedule} variant="primary">Save</Btn>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--hi)', marginTop: 8, fontFamily: 'var(--mono)' }}>schedule changes require updating n8n Workflow A trigger interval</div>
           </div>
+          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 500 }}>Campaign surge</div>
+              <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>Triggered via button above or POST /webhook/surge</div>
+            </div>
+            <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--green)' }}>always on</div>
+          </div>
+          <Status status={scheduleStatus} />
         </Card>
       </div>
 
       {/* RIGHT */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-        {/* target URL */}
         <Card>
           <Label>monitored target</Label>
           {activeTarget && (
@@ -229,7 +260,6 @@ export default function ControlPage() {
           )}
         </Card>
 
-        {/* Discord */}
         <Card>
           <Label>discord alerts</Label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(88,101,242,.07)', border: '0.5px solid rgba(88,101,242,.2)', borderRadius: 8, marginBottom: 12 }}>
