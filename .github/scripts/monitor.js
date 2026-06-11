@@ -8,24 +8,27 @@
  *
  * Visit flow:
  *   1. Navigate to referrer (randomly chosen from enabled list)
- *   2. Dwell 2–4s
+ *   2. Dwell 2–4s on referrer
  *   3. Navigate to target URL (Referer header set naturally by browser)
- *   4. Verify page loads, iframe present
- *   5. If this run is selected for click-check: click "Run game" button,
- *      verify itch.io login/auth prompt appears (confirms game embed is live)
- *   6. Dwell 3–6s
+ *   4. Verify page loads and has expected content
+ *   5. Check game iframe scaffold is present in DOM (src may be empty pre-click — that's normal)
+ *   6. If selected by click_check_percentage: click "Run game", verify login prompt appears
+ *   7. Dwell 3–6s
+ *
+ * NOTE: iframe check and click-check are independent.
+ * The iframe check confirms the embed container exists in the DOM.
+ * The click-check confirms the game embed responds correctly when activated.
  */
 
 const { chromium } = require('playwright');
 const https = require('https');
 const fs = require('fs');
 
-const REGION       = process.env.REGION       || 'unknown';
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
-const FALLBACK_TARGET = process.env.TARGET_URL || 'https://uprisinglabs.itch.io/bug-seek-expedition-edition';
-
-const TIMEOUT = 25000;
+const REGION          = process.env.REGION       || 'unknown';
+const SUPABASE_URL    = process.env.SUPABASE_URL;
+const SUPABASE_KEY    = process.env.SUPABASE_KEY;
+const FALLBACK_TARGET = process.env.TARGET_URL   || 'https://uprisinglabs.itch.io/bug-seek-expedition-edition';
+const TIMEOUT         = 25000;
 
 const ACCEPT_LANGUAGE = {
   'us-east':      'en-US,en;q=0.9',
@@ -37,34 +40,47 @@ const ACCEPT_LANGUAGE = {
 };
 
 const BLOCK_INDICATORS = [
-  'cf-browser-verification',
-  'Attention Required',
-  'Just a moment',
-  'Enable JavaScript and cookies',
-  'Access denied',
+  'cf-browser-verification', 'Attention Required', 'Just a moment',
+  'Enable JavaScript and cookies', 'Access denied',
 ];
 
+// itch.io game embed iframe selectors — ordered most to least specific.
+// NOTE: src is empty before "Run game" is clicked — do NOT check src to confirm presence.
 const GAME_IFRAME_SELECTORS = [
   'iframe#game_drop',
-  'iframe.game_frame',
-  'div#game_frame iframe',
+  '.game_frame iframe',
+  '#game_frame iframe',
+  'div[class*="game"] iframe',
+  '.iframe_wrap iframe',
+  '.html_embed_widget iframe',
+];
+
+// Container div selectors — itch.io may render just a div scaffold before the iframe is inserted
+const GAME_CONTAINER_SELECTORS = [
+  '#game_drop',
+  '.game_frame',
   '#game_frame',
+  '.iframe_wrap',
+  '.html_embed_widget',
 ];
 
-// Login/auth prompt indicators — what itch.io shows after clicking "Run game"
-// when the game requires an account
-const LOGIN_PROMPT_INDICATORS = [
-  'Log in',
-  'Sign in',
-  'Create account',
-  'itch.io account',
-  'You need to',
-  'login_form',
-  'register_form',
-  'iframe[src*="itch.io/login"]',
+// "Run game" button selectors
+const RUN_GAME_SELECTORS = [
+  'button.load_iframe_btn',
+  '.run_game_btn',
+  'button:has-text("Run game")',
+  '[data-action="load_iframe"]',
+  'a:has-text("Run game")',
+  '.play_btn',
 ];
 
-// ── Supabase fetch ────────────────────────────────────────────────────────────
+// Login prompt indicators after clicking "Run game"
+const LOGIN_INDICATORS = [
+  'Log in', 'Sign in', 'Create account', 'itch.io account',
+  'login_form', 'register_form', 'itch.io/login', 'itch.io/register',
+];
+
+// ── Supabase helpers ──────────────────────────────────────────────────────────
 
 function sbGet(path) {
   return new Promise((resolve) => {
@@ -73,10 +89,7 @@ function sbGet(path) {
     const req = https.get({
       hostname: url.hostname,
       path: url.pathname + url.search,
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-      },
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     }, res => {
       let data = '';
       res.on('data', chunk => data += chunk);
@@ -94,23 +107,20 @@ async function fetchConfig() {
     sbGet('/rest/v1/monitor_config?select=key,value'),
   ]);
 
-  const targetUrl = (Array.isArray(targets) && targets[0]?.url) || FALLBACK_TARGET;
-  const referrerList = Array.isArray(referrers) ? referrers : [];
-  const configMap = {};
+  const targetUrl     = (Array.isArray(targets) && targets[0]?.url) || FALLBACK_TARGET;
+  const referrerList  = Array.isArray(referrers) ? referrers : [];
+  const configMap     = {};
   if (Array.isArray(config)) config.forEach(r => { configMap[r.key] = r.value; });
-
   const clickCheckPct = parseInt(configMap['click_check_percentage'] || '30');
 
-  console.log(`Target: ${targetUrl}`);
-  console.log(`Referrers: ${referrerList.map(r => r.name || r.url).join(', ') || 'none'}`);
-  console.log(`Click-check rate: ${clickCheckPct}%`);
+  console.log(`Target:            ${targetUrl}`);
+  console.log(`Referrers:         ${referrerList.map(r => r.name || r.url).join(', ') || 'none'}`);
+  console.log(`Click-check rate:  ${clickCheckPct}%`);
 
   return { targetUrl, referrerList, clickCheckPct };
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-const pick  = arr => arr[Math.floor(Math.random() * arr.length)];
+const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
 const randMs = (min, max) => Math.floor(Math.random() * (max - min)) + min;
 const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
@@ -122,23 +132,16 @@ async function run() {
   const acceptLanguage = ACCEPT_LANGUAGE[REGION] || 'en-US,en;q=0.9';
   const doClickCheck   = Math.random() * 100 < clickCheckPct;
 
-  console.log(`Click-check this run: ${doClickCheck}`);
+  console.log(`Referrer:          ${chosenReferrer?.url || '(none)'}`);
+  console.log(`Do click-check:    ${doClickCheck}`);
 
   const result = {
-    region: REGION,
-    ok: false,
-    ttfb_ms: null,
-    page_title: null,
-    game_iframe_loaded: false,
-    js_errors: [],
-    page_blocked: false,
-    render_error: null,
-    content_language: null,
-    accept_language_sent: acceptLanguage,
-    cf_colo: null,
+    region: REGION, ok: false, ttfb_ms: null,
+    page_title: null, game_iframe_loaded: false,
+    js_errors: [], page_blocked: false, render_error: null,
+    content_language: null, accept_language_sent: acceptLanguage, cf_colo: null,
     referrer_used: chosenReferrer?.url || null,
-    click_check_done: false,
-    login_prompt_shown: null,
+    click_check_done: false, login_prompt_shown: null,
   };
 
   let browser;
@@ -146,12 +149,8 @@ async function run() {
     browser = await chromium.launch({
       headless: true,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
+        '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+        '--disable-gpu', '--no-first-run', '--no-zygote',
         '--disable-blink-features=AutomationControlled',
       ],
     });
@@ -171,13 +170,12 @@ async function run() {
 
     // ── Step 1: Visit referrer ────────────────────────────────────────────────
     if (chosenReferrer) {
-      console.log(`Visiting referrer: ${chosenReferrer.url}`);
       try {
         await page.goto(chosenReferrer.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
         await sleep(randMs(2000, 4000));
-        console.log(`Referrer done. Navigating to target.`);
+        console.log('Referrer done, navigating to target.');
       } catch (e) {
-        console.log(`Referrer failed (${e.message.substring(0, 80)}), going direct.`);
+        console.log(`Referrer failed: ${e.message.substring(0, 80)}, going direct.`);
       }
     }
 
@@ -188,10 +186,9 @@ async function run() {
 
     let ttfb = null, responseStatus = null, contentLanguage = null;
     const startTime = Date.now();
-
     page.on('response', response => {
-      const url = response.url();
-      if ((url === targetUrl || url.startsWith(targetUrl.split('?')[0])) && ttfb === null) {
+      const u = response.url();
+      if ((u === targetUrl || u.startsWith(targetUrl.split('?')[0])) && ttfb === null) {
         ttfb = Date.now() - startTime;
         responseStatus = response.status();
         contentLanguage = response.headers()['content-language'] || null;
@@ -203,7 +200,7 @@ async function run() {
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUT });
     } catch (e) { navError = e.message; }
 
-    result.ttfb_ms = ttfb || (Date.now() - startTime);
+    result.ttfb_ms         = ttfb || (Date.now() - startTime);
     result.content_language = contentLanguage;
 
     if (navError && !navError.includes('timeout')) {
@@ -223,60 +220,91 @@ async function run() {
       } else if (responseStatus && responseStatus >= 400) {
         result.render_error = `HTTP ${responseStatus}`;
       } else {
-        const hasExpectedContent = (
+        const hasExpectedContent =
           pageContent.includes('itch.io') ||
           pageContent.includes('bug-seek') ||
           pageContent.includes('Bug Seek') ||
-          pageTitle.toLowerCase().includes('itch')
-        );
+          pageContent.includes('Bug &amp; Seek') ||
+          pageTitle.toLowerCase().includes('itch');
 
         if (!hasExpectedContent) result.render_error = 'Expected content not found';
 
-        // ── Step 3: Wait for game iframe ──────────────────────────────────────
+        // ── Step 3: Check game iframe/container is present ────────────────────
+        // The iframe src is empty before "Run game" is clicked — that's normal.
+        // We just check the container/iframe element exists in the DOM at all.
         let iframeFound = false;
+
+        // Try iframe selectors first
         for (const selector of GAME_IFRAME_SELECTORS) {
           try {
-            await page.waitForSelector(selector, { timeout: 8000 });
-            const src = await page.$eval(selector, el => el.src || el.dataset.src || '').catch(() => '');
-            if (src && src !== 'about:blank') { iframeFound = true; break; }
+            await page.waitForSelector(selector, { timeout: 5000 });
+            iframeFound = true;
+            console.log(`Iframe found via selector: ${selector}`);
+            break;
           } catch (_) {}
         }
-        result.game_iframe_loaded = iframeFound;
 
-        // ── Step 4: Click-through check (configurable %) ──────────────────────
-        if (doClickCheck && iframeFound) {
-          console.log(`Running click-check — clicking "Run game" button`);
+        // Fall back to container div selectors
+        if (!iframeFound) {
+          for (const selector of GAME_CONTAINER_SELECTORS) {
+            try {
+              await page.waitForSelector(selector, { timeout: 3000 });
+              iframeFound = true;
+              console.log(`Game container found via selector: ${selector}`);
+              break;
+            } catch (_) {}
+          }
+        }
+
+        // Last resort: check page source for iframe/game embed markers
+        if (!iframeFound) {
+          iframeFound =
+            pageContent.includes('game_drop') ||
+            pageContent.includes('game_frame') ||
+            pageContent.includes('iframe_wrap') ||
+            pageContent.includes('html_embed_widget') ||
+            pageContent.includes('load_iframe_btn') ||
+            pageContent.includes('Run game');
+          if (iframeFound) console.log('Game embed found via page source markers');
+        }
+
+        result.game_iframe_loaded = iframeFound;
+        console.log(`Game iframe/container found: ${iframeFound}`);
+
+        // ── Step 4: Click-check — INDEPENDENT of iframe detection ─────────────
+        // We attempt the click-check regardless of iframeFound.
+        // The Run game button is what matters, not whether the iframe element exists.
+        if (doClickCheck) {
+          console.log('Attempting click-check...');
           result.click_check_done = true;
 
           try {
-            // Find and click the Run game button
-            const runBtn = await page.$('button.load_iframe_btn, .run_game_btn, button:has-text("Run game"), [data-action="load_iframe"]');
+            let runBtn = null;
+            for (const selector of RUN_GAME_SELECTORS) {
+              try {
+                runBtn = await page.$(selector);
+                if (runBtn) {
+                  console.log(`Found Run game button: ${selector}`);
+                  break;
+                }
+              } catch (_) {}
+            }
+
             if (runBtn) {
               await runBtn.click();
-              console.log(`Clicked "Run game". Waiting for login/auth prompt...`);
-
-              // Wait up to 8s for login prompt to appear
+              console.log('Clicked Run game. Waiting for response...');
               await sleep(3000);
-              const postClickContent = await page.content().catch(() => '');
 
-              const loginPromptShown = LOGIN_PROMPT_INDICATORS.some(indicator => {
-                if (indicator.startsWith('iframe[')) {
-                  // Check for login iframe
-                  return postClickContent.includes('itch.io/login') || postClickContent.includes('itch.io/register');
-                }
-                return postClickContent.includes(indicator);
-              });
-
-              result.login_prompt_shown = loginPromptShown;
-              console.log(`Login prompt shown: ${loginPromptShown}`);
-
-              if (!loginPromptShown) {
-                // Not necessarily a failure — game might load directly if already logged in
-                // or may use a different auth flow. Log as warning not hard fail.
-                console.log(`No login prompt detected — game may have loaded directly or auth flow differs`);
-              }
+              const postClick = await page.content().catch(() => '');
+              const loginShown = LOGIN_INDICATORS.some(i => postClick.includes(i));
+              result.login_prompt_shown = loginShown;
+              console.log(`Login prompt shown: ${loginShown}`);
             } else {
-              console.log(`"Run game" button not found — may already be in play state or different layout`);
+              // Log what buttons ARE on the page to help debug
+              const buttons = await page.$$eval('button, a.button, .btn', els =>
+                els.map(el => el.textContent?.trim().substring(0, 50))
+              ).catch(() => []);
+              console.log(`Run game button not found. Page buttons: ${buttons.join(' | ')}`);
               result.click_check_done = false;
             }
           } catch (e) {
