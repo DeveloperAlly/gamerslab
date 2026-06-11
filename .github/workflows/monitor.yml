@@ -2,7 +2,7 @@ name: Geo Monitor
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -15,32 +15,92 @@ on:
         required: false
 
 jobs:
+
+  # ── Step 1: Pick 6 random VPN configs from /proton/ ─────────────────────────
+  # Runs once, outputs a JSON array of 6 conf filenames for the monitor matrix.
+  # Each run gets a different random selection from all available configs,
+  # spreading checks across countries over time.
+  pick-vpn-configs:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Pick 6 random configs
+        id: pick
+        run: |
+          # Get all valid conf files (no spaces in filename)
+          CONFIGS=()
+          for f in proton/wg-*.conf; do
+            basename=$(basename "$f")
+            if [[ "$basename" != *" "* ]]; then
+              CONFIGS+=("$basename")
+            fi
+          done
+
+          TOTAL=${#CONFIGS[@]}
+          echo "Available configs: $TOTAL"
+
+          # Shuffle and pick 6 (or fewer if less than 6 available)
+          PICK=6
+          if [ $TOTAL -lt $PICK ]; then PICK=$TOTAL; fi
+
+          # Fisher-Yates shuffle using $RANDOM
+          for ((i=TOTAL-1; i>0; i--)); do
+            j=$((RANDOM % (i+1)))
+            tmp="${CONFIGS[$i]}"
+            CONFIGS[$i]="${CONFIGS[$j]}"
+            CONFIGS[$j]="$tmp"
+          done
+
+          SELECTED=("${CONFIGS[@]:0:$PICK}")
+
+          # Map each selected config to a region slot and build JSON matrix
+          # Region names are assigned positionally for dashboard display
+          REGION_NAMES=("us-east" "eu-west" "ap-southeast" "sa-east" "me-south" "af-south")
+
+          JSON="["
+          for i in "${!SELECTED[@]}"; do
+            CONF="${SELECTED[$i]}"
+            REGION="${REGION_NAMES[$i]}"
+            # Extract country code from filename: wg-XX-FREE-N.conf → XX
+            COUNTRY=$(echo "$CONF" | sed 's/wg-\([A-Z]*\)-.*/\1/')
+            if [ $i -gt 0 ]; then JSON="$JSON,"; fi
+            JSON="$JSON{\"conf\":\"$CONF\",\"region\":\"$REGION\",\"country\":\"$COUNTRY\"}"
+          done
+          JSON="$JSON]"
+
+          echo "Selected: $JSON"
+          echo "matrix=$JSON" >> $GITHUB_OUTPUT
+
+
+  # ── Step 2: Run monitor via each VPN config in parallel ─────────────────────
   monitor:
+    needs: pick-vpn-configs
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - region: us-east
-            runner: ubuntu-latest
-          - region: eu-west
-            runner: ubuntu-latest
-          - region: ap-southeast
-            runner: ubuntu-latest
-          - region: sa-east
-            runner: ubuntu-latest
-          - region: me-south
-            runner: ubuntu-latest
-          - region: af-south
-            runner: ubuntu-latest
+        include: ${{ fromJson(needs.pick-vpn-configs.outputs.matrix) }}
 
-    runs-on: ${{ matrix.runner }}
-
-    # Dwell check can run up to 500s — set generous timeout
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install WireGuard
+        run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard resolvconf
+
+      - name: Connect VPN (${{ matrix.country }})
+        run: |
+          echo "Connecting via ${{ matrix.conf }} → ${{ matrix.country }}"
+          sudo cp proton/${{ matrix.conf }} /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+          sleep 3
+          # Verify the tunnel is up and log the outbound IP
+          ACTUAL_IP=$(curl -s --max-time 10 "http://ip-api.com/json/?fields=query,countryCode" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['query'], d['countryCode'])" 2>/dev/null || echo "unknown unknown")
+          echo "Outbound IP: $ACTUAL_IP (expected country: ${{ matrix.country }})"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4.4.0
@@ -60,14 +120,15 @@ jobs:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: |
-          node .github/scripts/monitor.js
+        run: node .github/scripts/monitor.js
 
       - name: Push to Supabase
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           REGION: ${{ matrix.region }}
+          COUNTRY: ${{ matrix.country }}
+          VPN_CONF: ${{ matrix.conf }}
           MODE: ${{ github.event.inputs.mode || 'standard' }}
         run: |
           python3 - <<'EOF'
@@ -79,10 +140,15 @@ jobs:
           except Exception:
             data = {}
 
+          # Get the real outbound IP (post-VPN)
           try:
-            runner_ip = urllib.request.urlopen('https://api.ipify.org', timeout=3).read().decode()
+            resp = urllib.request.urlopen('http://ip-api.com/json/?fields=query,countryCode', timeout=5).read()
+            ip_data = json.loads(resp)
+            runner_ip = ip_data.get('query')
+            actual_country = ip_data.get('countryCode')
           except Exception:
             runner_ip = None
+            actual_country = None
 
           payload = json.dumps({
             "region":               os.environ['REGION'],
@@ -111,16 +177,20 @@ jobs:
             f"{os.environ['SUPABASE_URL']}/rest/v1/monitor_results",
             data=payload,
             headers={
-              'apikey':         os.environ['SUPABASE_KEY'],
-              'Authorization':  f"Bearer {os.environ['SUPABASE_KEY']}",
-              'Content-Type':   'application/json',
-              'Prefer':         'return=minimal'
+              'apikey':        os.environ['SUPABASE_KEY'],
+              'Authorization': f"Bearer {os.environ['SUPABASE_KEY']}",
+              'Content-Type':  'application/json',
+              'Prefer':        'return=minimal'
             },
             method='POST'
           )
           urllib.request.urlopen(req)
-          print(f"Pushed: region={os.environ['REGION']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms iframe={data.get('game_iframe_loaded')} login={data.get('login_prompt_shown')} dwell={data.get('dwell_seconds')}s dwell_crash={data.get('dwell_crash')} dwell_errors={len(json.loads(data.get('dwell_errors') or '[]'))}")
+          print(f"Pushed: region={os.environ['REGION']} country={actual_country} ip={runner_ip} vpn={os.environ['VPN_CONF']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms login={data.get('login_prompt_shown')}")
           EOF
+
+      - name: Disconnect VPN
+        if: always()
+        run: sudo wg-quick down wg0 || true
 
       - name: Surge parallel checks
         if: ${{ github.event.inputs.mode == 'surge' }}
@@ -129,5 +199,4 @@ jobs:
           TARGET_URL: ${{ secrets.TARGET_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: |
-          node .github/scripts/surge.js
+        run: node .github/scripts/surge.js
