@@ -1,0 +1,14 @@
+{
+  "name": "gamerslab-monitor-tests",
+  "version": "1.0.0",
+  "description": "Test scripts for the GamersLab Geo Monitor pipeline",
+  "scripts": {
+    "test:supabase":  "node test-supabase.js",
+    "test:worker":    "node test-worker.js --skip-trigger --skip-discord",
+    "test:n8n":       "node test-n8n.js",
+    "test:github":    "node test-github-actions.js",
+    "test:e2e":       "node test-e2e.js",
+    "test:all":       "node test-supabase.js && node test-worker.js --skip-trigger --skip-discord && node test-n8n.js && node test-github-actions.js"
+  },
+  "engines": { "node": ">=20" }
+}
