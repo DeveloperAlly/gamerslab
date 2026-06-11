@@ -18,18 +18,6 @@ function err(msg, status = 400) {
   return json({ error: msg }, status);
 }
 
-// Strip fields that n8n's PUT /workflows/:id rejects as additional properties.
-// The GET response includes read-only server fields that must not be sent back on PUT.
-function sanitiseForPut(wf) {
-  const {
-    id, createdAt, updatedAt, versionId, activeVersionId,
-    active, isArchived, triggerCount, parentFolderId,
-    activeVersion, scopes, canExecute, tags, meta,
-    ...rest
-  } = wf;
-  return rest;
-}
-
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -85,33 +73,60 @@ async function handleTrigger(request, env) {
 }
 
 // ── Schedule update ───────────────────────────────────────────────────────────
+// GET the workflow, patch only the Schedule Trigger node's interval in the nodes
+// array, then PUT back only the minimal fields n8n accepts.
+// n8n PUT /api/v1/workflows/:id accepts: name, nodes, connections, settings, staticData
 async function handleSchedule(request, env) {
   if (!env.N8N_API_KEY) return err("N8N_API_KEY not configured");
 
   const body = await request.json().catch(() => ({}));
   const intervalMinutes = parseInt(body.intervalMinutes) || 5;
 
+  // GET current workflow to get nodes + connections
   const getRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
-    headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
+    headers: { "X-N8N-API-KEY": env.N8N_API_KEY },
   });
   if (!getRes.ok) return err(`Failed to fetch workflow: ${await getRes.text()}`, getRes.status);
 
-  const workflow = await getRes.json();
+  const wf = await getRes.json();
 
-  workflow.nodes = workflow.nodes.map(node => {
+  // Patch the Schedule Trigger node only
+  const nodes = wf.nodes.map(node => {
     if (node.type === "n8n-nodes-base.scheduleTrigger" && node.name === "Schedule Trigger") {
-      node.parameters.rule.interval = [{ field: "minutes", minutesInterval: intervalMinutes }];
+      return {
+        ...node,
+        parameters: {
+          ...node.parameters,
+          rule: { interval: [{ field: "minutes", minutesInterval: intervalMinutes }] },
+        },
+      };
     }
     return node;
   });
 
+  // PUT with only the fields n8n accepts — no id, versionId, active, meta, scopes etc.
+  const putBody = {
+    name: wf.name,
+    nodes,
+    connections: wf.connections,
+    settings: wf.settings,
+    staticData: wf.staticData || null,
+  };
+
   const putRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
     method: "PUT",
     headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify(sanitiseForPut(workflow)),
+    body: JSON.stringify(putBody),
   });
 
   if (!putRes.ok) return err(`Failed to update workflow: ${await putRes.text()}`, putRes.status);
+
+  // Re-publish so the schedule change takes effect immediately
+  const activateRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}/activate`, {
+    method: "POST",
+    headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
+  });
+
   return json({ updated: true, intervalMinutes });
 }
 
