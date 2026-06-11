@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GamersLab — Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0e0e10;--surface:#17171a;--surface2:#1f1f24;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);
+  --text:#f0f0f2;--muted:#8a8a96;--hint:#55555f;
+  --green:#00d084;--red:#ff4d4d;--amber:#f5a623;--accent:#00d084;
+  --font-mono:'IBM Plex Mono',monospace;--font-sans:'Inter',sans-serif;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font-sans);font-size:14px;line-height:1.6}
+#lock{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:100}
+.lock-card{width:340px;padding:2.5rem 2rem;background:var(--surface);border:0.5px solid var(--border2);border-radius:12px}
+.lock-logo{font-family:var(--font-mono);font-size:13px;color:var(--accent);letter-spacing:.08em;margin-bottom:1.5rem}
+.lock-title{font-size:20px;font-weight:500;margin-bottom:.4rem}
+.lock-sub{font-size:13px;color:var(--muted);margin-bottom:1.5rem}
+.lock-card input[type=password]{width:100%;padding:10px 14px;background:var(--surface2);border:0.5px solid var(--border2);border-radius:8px;color:var(--text);font-size:14px;font-family:var(--font-mono);outline:none;margin-bottom:10px;transition:border-color .2s}
+.lock-card input[type=password]:focus{border-color:var(--accent)}
+.lock-card button{width:100%;padding:10px;background:var(--accent);color:#000;font-weight:500;font-size:14px;border:none;border-radius:8px;cursor:pointer;transition:opacity .15s}
+.lock-card button:hover{opacity:.85}
+.lock-err{font-size:12px;color:var(--red);margin-top:8px;min-height:16px}
+#app{display:none;min-height:100vh}
+header{position:sticky;top:0;z-index:10;background:rgba(14,14,16,0.85);backdrop-filter:blur(12px);border-bottom:0.5px solid var(--border);padding:0 2rem;height:52px;display:flex;align-items:center;justify-content:space-between}
+.header-logo{font-family:var(--font-mono);font-size:12px;color:var(--accent);letter-spacing:.1em}
+.header-right{display:flex;align-items:center;gap:16px}
+.header-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.btn-refresh{font-size:12px;padding:5px 12px;border-radius:6px;border:0.5px solid var(--border2);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--font-sans);transition:color .15s,border-color .15s}
+.btn-refresh:hover{color:var(--text);border-color:var(--accent)}
+main{max-width:1100px;margin:0 auto;padding:2rem}
+.time-tabs{display:flex;gap:4px;margin-bottom:2rem}
+.time-tab{padding:5px 14px;font-size:12px;border-radius:6px;border:0.5px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:var(--font-sans);transition:all .15s}
+.time-tab.active,.time-tab:hover{border-color:var(--accent);color:var(--accent)}
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:2rem}
+.metric-card{background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:1.1rem 1.2rem}
+.metric-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.metric-val{font-size:28px;font-weight:500;font-family:var(--font-mono);line-height:1}
+.metric-val.green{color:var(--green)}
+.metric-val.red{color:var(--red)}
+.metric-sub{font-size:11px;color:var(--hint);margin-top:4px;font-family:var(--font-mono)}
+.section{margin-bottom:2rem}
+.section-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:1rem;font-family:var(--font-mono)}
+.region-list{display:flex;flex-direction:column;gap:2px}
+.region-row{display:grid;grid-template-columns:130px 1fr 90px 70px 60px;align-items:center;gap:12px;padding:10px 14px;border-radius:8px;background:var(--surface);border:0.5px solid var(--border);transition:border-color .15s}
+.region-row:hover{border-color:var(--border2)}
+.region-name{font-size:13px;font-weight:500;display:flex;align-items:center;gap:7px}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot.ok{background:var(--green)}
+.dot.fail{background:var(--red)}
+.dot.partial{background:var(--amber)}
+.dot.na{background:var(--hint)}
+.bar-wrap{background:var(--surface2);border-radius:3px;height:6px}
+.bar-fill{height:100%;border-radius:3px;background:var(--green);transition:width .5s ease}
+.bar-fill.has-fail{background:var(--amber)}
+.bar-fill.all-fail{background:var(--red)}
+.region-ttfb{font-family:var(--font-mono);font-size:12px;color:var(--muted);text-align:right}
+.region-runs{font-family:var(--font-mono);font-size:12px;color:var(--hint);text-align:right}
+.colo-badge{font-family:var(--font-mono);font-size:10px;padding:2px 7px;border-radius:4px;background:var(--surface2);border:0.5px solid var(--border);color:var(--muted)}
+.chart-card{background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:1.2rem}
+.chart-legend{display:flex;gap:16px;margin-bottom:1rem}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.legend-dot{width:8px;height:8px;border-radius:2px}
+.itch-card{background:var(--surface);border:0.5px solid var(--border);border-radius:10px;padding:1.2rem 1.4rem;display:flex;align-items:center;gap:1.2rem}
+.itch-thumb{width:64px;height:64px;border-radius:8px;background:var(--surface2);border:0.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0}
+.itch-name{font-size:15px;font-weight:500;margin-bottom:2px}
+.itch-url{font-size:12px;color:var(--muted);font-family:var(--font-mono)}
+.itch-link{margin-left:auto;font-size:12px;padding:6px 14px;border:0.5px solid var(--border2);border-radius:6px;color:var(--muted);text-decoration:none;transition:color .15s,border-color .15s;flex-shrink:0}
+.itch-link:hover{color:var(--accent);border-color:var(--accent)}
+.colo-wrap{display:flex;flex-wrap:wrap;gap:6px}
+.empty{color:var(--hint);font-size:13px;padding:1.5rem;text-align:center;font-family:var(--font-mono)}
+.skel{background:var(--surface);border-radius:8px;animation:shimmer 1.4s infinite}
+@keyframes shimmer{0%,100%{opacity:.4}50%{opacity:.8}}
+@media(max-width:640px){main{padding:1rem}.region-row{grid-template-columns:110px 1fr 70px}.region-runs,.colo-badge{display:none}}
+</style>
+</head>
+<body>
+
+<div id="lock">
+  <div class="lock-card">
+    <div class="lock-logo">GAMERSLAB / MONITOR</div>
+    <div class="lock-title">Analytics</div>
+    <div class="lock-sub">Internal access only</div>
+    <input type="password" id="pw-input" placeholder="Password" onkeydown="if(event.key==='Enter')unlock()" autofocus>
+    <button onclick="unlock()">Enter</button>
+    <div class="lock-err" id="lock-err"></div>
+  </div>
+</div>
+
+<div id="app">
+  <header>
+    <div class="header-logo">GAMERSLAB / MONITOR</div>
+    <div class="header-right">
+      <div class="header-status"><div class="pulse"></div><span id="last-updated">–</span></div>
+      <button class="btn-refresh" onclick="loadData()">↻ refresh</button>
+    </div>
+  </header>
+  <main>
+    <div class="time-tabs">
+      <button class="time-tab" data-h="1">1h</button>
+      <button class="time-tab active" data-h="24">24h</button>
+      <button class="time-tab" data-h="168">7d</button>
+      <button class="time-tab" data-h="720">30d</button>
+    </div>
+    <div class="metrics-grid" id="metrics">
+      <div class="metric-card skel" style="height:88px"></div>
+      <div class="metric-card skel" style="height:88px"></div>
+      <div class="metric-card skel" style="height:88px"></div>
+      <div class="metric-card skel" style="height:88px"></div>
+    </div>
+    <div class="section">
+      <div class="section-title">runs over time</div>
+      <div class="chart-card">
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>successful</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>failed</div>
+        </div>
+        <div style="position:relative;height:180px">
+          <canvas id="timeline-chart" role="img" aria-label="Timeline of monitor runs over selected period"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">regions</div>
+      <div class="region-list" id="region-list"><div class="empty">loading…</div></div>
+    </div>
+    <div class="section">
+      <div class="section-title">cloudflare pops seen</div>
+      <div class="colo-wrap" id="colo-wrap"><div class="empty">loading…</div></div>
+    </div>
+    <div class="section">
+      <div class="section-title">target</div>
+      <div class="itch-card">
+        <div class="itch-thumb">🐛</div>
+        <div>
+          <div class="itch-name">Bug Seek: Expedition Edition</div>
+          <div class="itch-url">uprisinglabs.itch.io/bug-seek-expedition-edition</div>
+        </div>
+        <a class="itch-link" href="https://uprisinglabs.itch.io/bug-seek-expedition-edition" target="_blank">open itch.io ↗</a>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const SUPABASE_URL = 'REPLACE_SUPABASE_URL';
+const SUPABASE_KEY = 'REPLACE_SUPABASE_KEY';
+const PASS_HASH   = 'REPLACE_PASS_HASH';
+
+const REGIONS = ['us-east','eu-west','ap-southeast','sa-east','me-south','af-south'];
+const FLAGS = {'us-east':'🇺🇸','eu-west':'🇪🇺','ap-southeast':'🇸🇬','sa-east':'🇧🇷','me-south':'🇸🇦','af-south':'🇰🇪'};
+let activeHours = 24, chartInst = null;
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function unlock() {
+  const hash = await sha256(document.getElementById('pw-input').value);
+  if (hash === PASS_HASH) {
+    sessionStorage.setItem('gl_auth', hash);
+    document.getElementById('lock').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    loadData();
+  } else {
+    document.getElementById('lock-err').textContent = 'Incorrect password';
+    document.getElementById('pw-input').value = '';
+    document.getElementById('pw-input').focus();
+  }
+}
+
+function checkSession() {
+  const s = sessionStorage.getItem('gl_auth');
+  if (s && s === PASS_HASH) {
+    document.getElementById('lock').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    loadData();
+  }
+}
+
+document.querySelectorAll('.time-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.time-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeHours = parseInt(btn.dataset.h);
+    loadData();
+  });
+});
+
+async function loadData() {
+  const since = new Date(Date.now() - activeHours * 3600 * 1000).toISOString();
+  const url = `${SUPABASE_URL}/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,mode,checked_at&checked_at=gte.${since}&order=checked_at.desc&limit=2000`;
+  let rows = [];
+  try {
+    const res = await fetch(url, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+    if (res.ok) rows = await res.json();
+  } catch(e) { console.error(e); }
+  renderMetrics(rows); renderRegions(rows); renderTimeline(rows); renderColos(rows);
+  document.getElementById('last-updated').textContent = 'updated ' + new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+}
+
+function renderMetrics(rows) {
+  const total = rows.length, ok = rows.filter(r=>r.status===1).length;
+  const uptime = total ? Math.round(ok/total*100) : 0;
+  const avgTtfb = total ? Math.round(rows.reduce((s,r)=>s+(r.ttfb_ms||0),0)/total) : 0;
+  const surge = rows.filter(r=>r.mode==='surge').length;
+  const label = activeHours < 24 ? activeHours+'h' : activeHours===168 ? '7d' : activeHours===720 ? '30d' : '24h';
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric-card"><div class="metric-label">total runs</div><div class="metric-val">${total.toLocaleString()}</div><div class="metric-sub">last ${label}</div></div>
+    <div class="metric-card"><div class="metric-label">uptime</div><div class="metric-val ${uptime>=99?'green':uptime>=90?'':'red'}">${uptime}%</div><div class="metric-sub">${ok.toLocaleString()} ok / ${total-ok} failed</div></div>
+    <div class="metric-card"><div class="metric-label">avg ttfb</div><div class="metric-val">${avgTtfb}<span style="font-size:16px;font-weight:400;color:var(--muted)">ms</span></div><div class="metric-sub">across all regions</div></div>
+    <div class="metric-card"><div class="metric-label">surge runs</div><div class="metric-val">${surge}</div><div class="metric-sub">campaign tests</div></div>`;
+}
+
+function renderRegions(rows) {
+  const by = {};
+  rows.forEach(r => {
+    if (!by[r.region]) by[r.region] = {ok:0,fail:0,ttfbs:[],colo:r.cf_colo};
+    r.status===1 ? by[r.region].ok++ : by[r.region].fail++;
+    if (r.ttfb_ms) by[r.region].ttfbs.push(r.ttfb_ms);
+  });
+  const max = Math.max(...Object.values(by).map(v=>v.ok+v.fail), 1);
+  document.getElementById('region-list').innerHTML = REGIONS.map(reg => {
+    const d = by[reg];
+    if (!d) return `<div class="region-row"><div class="region-name"><div class="dot na"></div>${FLAGS[reg]||''} ${reg}</div><div class="bar-wrap"><div class="bar-fill" style="width:0%"></div></div><div class="region-ttfb">—</div><div class="region-runs">0 runs</div><span class="colo-badge">—</span></div>`;
+    const tot = d.ok+d.fail, pct = Math.round(tot/max*100);
+    const avgT = d.ttfbs.length ? Math.round(d.ttfbs.reduce((a,b)=>a+b,0)/d.ttfbs.length) : 0;
+    const dot = d.fail===0?'ok':d.ok===0?'fail':'partial';
+    const bar = d.fail===0?'':d.ok===0?'all-fail':'has-fail';
+    return `<div class="region-row"><div class="region-name"><div class="dot ${dot}"></div>${FLAGS[reg]||''} ${reg}</div><div class="bar-wrap"><div class="bar-fill ${bar}" style="width:${pct}%"></div></div><div class="region-ttfb">${avgT}ms</div><div class="region-runs">${tot} runs</div><span class="colo-badge">${d.colo||'—'}</span></div>`;
+  }).join('') || '<div class="empty">no data for this period</div>';
+}
+
+function renderTimeline(rows) {
+  const bms = activeHours<=1?5*60*1000:activeHours<=6?15*60*1000:activeHours<=24?3600*1000:6*3600*1000;
+  const b = {};
+  rows.forEach(r => {
+    const t = Math.floor(new Date(r.checked_at).getTime()/bms)*bms;
+    if (!b[t]) b[t] = {ok:0,fail:0};
+    r.status===1 ? b[t].ok++ : b[t].fail++;
+  });
+  const keys = Object.keys(b).map(Number).sort();
+  const labels = keys.map(t => {
+    const d = new Date(t);
+    return activeHours<=24 ? d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : d.toLocaleDateString([],{month:'short',day:'numeric'});
+  });
+  if (chartInst) chartInst.destroy();
+  chartInst = new Chart(document.getElementById('timeline-chart'), {
+    type: 'bar',
+    data: { labels, datasets: [
+      {label:'successful',data:keys.map(k=>b[k].ok),backgroundColor:'#00d084',stack:'a'},
+      {label:'failed',data:keys.map(k=>b[k].fail),backgroundColor:'#ff4d4d',stack:'a'}
+    ]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:'index'}},
+      scales:{
+        x:{stacked:true,grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8a8a96',font:{size:11},maxTicksLimit:12}},
+        y:{stacked:true,beginAtZero:true,grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#8a8a96',font:{size:11},stepSize:1}}
+      }
+    }
+  });
+}
+
+function renderColos(rows) {
+  const colos = [...new Set(rows.map(r=>r.cf_colo).filter(Boolean))].sort();
+  document.getElementById('colo-wrap').innerHTML = colos.length ? colos.map(c=>`<span class="colo-badge">${c}</span>`).join('') : '<div class="empty">no data yet</div>';
+}
+
+checkSession();
+</script>
+</body>
+</html>
