@@ -10,6 +10,10 @@ async function sbFetch(path, opts = {}) {
       apikey: SB_KEY,
       Authorization: `Bearer ${SB_KEY}`,
       'Content-Type': 'application/json',
+      // Supabase REST API defaults to 1000 rows regardless of ?limit=
+      // The Range header is required to override this default.
+      // 0-4999 = up to 5000 rows. Adjust as needed.
+      ...((!opts.method || opts.method === 'GET') ? { 'Range-Unit': 'items', Range: '0-4999' } : {}),
       ...(opts.headers || {}),
     },
     body: opts.body,
@@ -47,8 +51,7 @@ export const api = {
   },
 
   // ── All-time aggregate stats (for top stat cards) ─────────────────────────
-  // Uses Supabase's built-in count via Prefer: count=exact header
-  // Returns { total, ok, failed, surgeTotal }
+  // Uses Supabase count=exact — returns real totals without fetching rows
   async allTimeStats() {
     const [totalRes, okRes, surgeRes] = await Promise.all([
       fetch(`${SB_URL}/rest/v1/monitor_results?select=id`, {
