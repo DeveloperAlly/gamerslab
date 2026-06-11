@@ -4,3 +4,12 @@ compatibility_date = "2024-01-01"
 
 [placement]
 mode = "smart"
+
+# Non-sensitive vars — safe to commit
+[vars]
+GITHUB_REPO_OWNER = "DeveloperAlly"
+GITHUB_REPO_NAME = "gamerslab"
+
+# Secrets (SUPABASE_URL, SUPABASE_SECRET_KEY, GITHUB_PAT, DISCORD_WEBHOOK_URL, TARGET_URL)
+# Set these ONCE via Cloudflare dashboard or wrangler secret put
+# They persist across deploys when set this way — do NOT add them here as plaintext
