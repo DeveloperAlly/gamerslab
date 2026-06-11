@@ -140,7 +140,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst lastSeen = row.last_seen;\n\n// Pipeline dead — no results at all in last 30 minutes\nif (total === 0) {\n  return [{ json: { alertType: 'dead', message: '💀 **Monitor pipeline is down**\\n\\nNo results received in the last 30 minutes.\\nGitHub Actions may have stopped running.\\n\\nCheck: https://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\n// Region failures\nif (failures > 0) {\n  return [{ json: { alertType: 'failure', message: `🚨 **Geo monitor failures detected**\\n\\n**Failed checks:** ${failures} of ${total} in last 30 min\\n**Last result:** ${lastSeen}` } }];\n}\n\n// All good — no alert\nreturn [];"
+          "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst lastSeen = row.last_seen;\n\nif (total === 0) {\n  return [{ json: { alertType: 'dead', message: '💀 **Monitor pipeline is down**\\n\\nNo results received in the last 30 minutes.\\nGitHub Actions may have stopped running.\\n\\nCheck: https://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\nif (failures > 0) {\n  return [{ json: { alertType: 'failure', message: `🚨 **Geo monitor failures detected**\\n\\n**Failed checks:** ${failures} of ${total} in last 30 min\\n**Last result:** ${lastSeen}` } }];\n}\n\nreturn [];"
         },
         "id": "evaluate-status",
         "name": "Evaluate status",
@@ -246,6 +246,79 @@
       "Validate URL": { "main": [[{ "node": "Save to Supabase", "type": "main", "index": 0 }]] },
       "Save to Supabase": { "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]] },
       "Notify Discord": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+    },
+    "settings": { "executionOrder": "v1" }
+  },
+  {
+    "name": "Workflow E — Scheduled surge testing",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [{ "field": "hours", "hoursInterval": 2 }]
+          }
+        },
+        "id": "surge-schedule",
+        "name": "Surge schedule",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1,
+        "position": [240, 300]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Random 50% fire rate — not every 2h tick fires\n// This creates unpredictable surge timing which better simulates real campaign spikes\nif (Math.random() > 0.5) { return []; }\nreturn [{ json: { proceed: true } }];"
+        },
+        "id": "surge-gate",
+        "name": "Random surge gate",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [460, 300]
+      },
+      {
+        "parameters": {
+          "resource": "workflowDispatch",
+          "owner": "={{ $env.GITHUB_REPO_OWNER }}",
+          "repository": "={{ $env.GITHUB_REPO_NAME }}",
+          "workflowId": "monitor.yml",
+          "ref": "main",
+          "additionalFields": {
+            "inputs": {
+              "inputsUi": {
+                "inputValues": [
+                  { "name": "mode", "value": "surge" },
+                  { "name": "regions", "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south" }
+                ]
+              }
+            }
+          }
+        },
+        "id": "dispatch-scheduled-surge",
+        "name": "Dispatch scheduled surge",
+        "type": "n8n-nodes-base.github",
+        "typeVersion": 1,
+        "position": [680, 300],
+        "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
+      },
+      {
+        "parameters": {
+          "resource": "message",
+          "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+          "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+          "content": "⚡ **Scheduled surge test fired**\n\nAutomated campaign spike simulation starting across all 6 regions.",
+          "options": {}
+        },
+        "id": "surge-notify",
+        "name": "Notify Discord",
+        "type": "n8n-nodes-base.discord",
+        "typeVersion": 2,
+        "position": [900, 300],
+        "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
+      }
+    ],
+    "connections": {
+      "Surge schedule": { "main": [[{ "node": "Random surge gate", "type": "main", "index": 0 }]] },
+      "Random surge gate": { "main": [[{ "node": "Dispatch scheduled surge", "type": "main", "index": 0 }]] },
+      "Dispatch scheduled surge": { "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]] }
     },
     "settings": { "executionOrder": "v1" }
   }
