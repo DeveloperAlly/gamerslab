@@ -20,6 +20,7 @@ function Btn({ children, onClick, variant = 'default', disabled, style, fullWidt
     primary: { border: 'none', color: '#000', background: 'var(--acc)', fontWeight: 500 },
     danger: { border: '0.5px solid rgba(240,62,62,.35)', color: 'var(--red)', background: 'var(--red-dim)' },
     surge: { border: 'none', color: '#000', background: 'var(--amber)', fontWeight: 500 },
+    ghost: { border: '0.5px solid var(--b2)', color: 'var(--mu)', background: 'transparent' },
   }
   return <button onClick={onClick} disabled={disabled} style={{ ...base, ...variants[variant], ...style }}>{children}</button>
 }
@@ -51,15 +52,17 @@ function Status({ status }) {
   )
 }
 
-function Input({ value, onChange, placeholder }) {
+function Input({ value, onChange, placeholder, type = 'text' }) {
+  const style = { width: '100%', padding: '8px 11px', borderRadius: 7, border: '0.5px solid var(--b2)', background: 'var(--s2)', color: 'var(--tx)', fontSize: 11, outline: 'none', transition: 'border-color .15s' }
   return (
-    <input value={value} onChange={onChange} placeholder={placeholder}
-      style={{ width: '100%', padding: '8px 11px', borderRadius: 7, border: '0.5px solid var(--b2)', background: 'var(--s2)', color: 'var(--tx)', fontSize: 11, outline: 'none', transition: 'border-color .15s' }}
+    <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={style}
       onFocus={e => e.target.style.borderColor = 'var(--acc)'}
       onBlur={e => e.target.style.borderColor = 'var(--b2)'}
     />
   )
 }
+
+const SEL = { fontSize: 11, padding: '7px 10px', borderRadius: 6, border: '0.5px solid var(--b2)', background: 'var(--s1)', color: 'var(--tx)', outline: 'none', width: '100%' }
 
 const INTERVAL_OPTIONS = [
   { label: 'Every 1 min', value: 1 },
@@ -69,13 +72,12 @@ const INTERVAL_OPTIONS = [
   { label: 'Every hour', value: 60 },
 ]
 
-const SURGE_INTERVAL_OPTIONS = [
-  { label: 'Every 1 hour', value: 60 },
-  { label: 'Every 2 hours', value: 120 },
-  { label: 'Every 4 hours', value: 240 },
-  { label: 'Every 6 hours', value: 360 },
-  { label: 'Every 12 hours', value: 720 },
-]
+// Default datetime input to now + 1 hour, rounded to nearest 15min
+function defaultScheduledAt() {
+  const d = new Date(Date.now() + 3600 * 1000)
+  d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0)
+  return d.toISOString().slice(0, 16)
+}
 
 export default function ControlPage() {
   const [triggerStatus, setTriggerStatus] = useState(null)
@@ -97,9 +99,11 @@ export default function ControlPage() {
   const [scheduleStatus, setScheduleStatus] = useState(null)
   const [toggleLoading, setToggleLoading] = useState(false)
 
-  // Surge schedule (Workflow E) — UI state only, controlled in n8n directly
-  const [surgeScheduleActive, setSurgeScheduleActive] = useState(true)
-  const [surgeIntervalMinutes, setSurgeIntervalMinutes] = useState(120)
+  // Surge scheduler (Workflow F/G)
+  const [scheduledSurges, setScheduledSurges] = useState([])
+  const [newSurgeAt, setNewSurgeAt] = useState(defaultScheduledAt())
+  const [newSurgeLabel, setNewSurgeLabel] = useState('')
+  const [surgeScheduleStatus, setSurgeScheduleStatus] = useState(null)
 
   useEffect(() => {
     api.activeTarget().then(t => { setActiveTarget(t); setTargetUrl(t?.url || ''); setTargetName(t?.name || '') }).catch(() => {})
@@ -108,6 +112,7 @@ export default function ControlPage() {
       .then(s => { setWorkflowActive(s.active); setIntervalMinutes(s.intervalMinutes || 5) })
       .catch(() => setWorkflowActive(null))
       .finally(() => setScheduleLoading(false))
+    api.scheduledSurges().then(setScheduledSurges).catch(() => {})
   }, [])
 
   async function runStandard() {
@@ -128,9 +133,7 @@ export default function ControlPage() {
       active ? await api.activateWorkflow() : await api.deactivateWorkflow()
       setWorkflowActive(active)
       setScheduleStatus({ type: 'success', msg: active ? 'Scheduler activated' : 'Scheduler paused' })
-    } catch (e) {
-      setScheduleStatus({ type: 'error', msg: e.message })
-    }
+    } catch (e) { setScheduleStatus({ type: 'error', msg: e.message }) }
     setToggleLoading(false)
   }
 
@@ -139,9 +142,28 @@ export default function ControlPage() {
     try {
       await api.setSchedule(intervalMinutes)
       setScheduleStatus({ type: 'success', msg: `Schedule updated — checks every ${intervalMinutes} min` })
-    } catch (e) {
-      setScheduleStatus({ type: 'error', msg: e.message })
-    }
+    } catch (e) { setScheduleStatus({ type: 'error', msg: e.message }) }
+  }
+
+  async function scheduleSurge() {
+    if (!newSurgeAt) return
+    setSurgeScheduleStatus({ type: 'loading', msg: 'Scheduling surge event…' })
+    try {
+      const iso = new Date(newSurgeAt).toISOString()
+      await api.scheduleSurge(iso, newSurgeLabel || 'Scheduled surge')
+      setSurgeScheduleStatus({ type: 'success', msg: `Surge scheduled for ${new Date(newSurgeAt).toLocaleString()}` })
+      setNewSurgeAt(defaultScheduledAt())
+      setNewSurgeLabel('')
+      const updated = await api.scheduledSurges()
+      setScheduledSurges(updated)
+    } catch (e) { setSurgeScheduleStatus({ type: 'error', msg: e.message }) }
+  }
+
+  async function cancelSurge(id) {
+    try {
+      await api.cancelSurge(id)
+      setScheduledSurges(prev => prev.filter(s => s.id !== id))
+    } catch (e) { console.error(e) }
   }
 
   async function updateTarget() {
@@ -163,15 +185,13 @@ export default function ControlPage() {
     } catch (e) { setDiscordStatus({ type: 'error', msg: e.message }) }
   }
 
-  const selectStyle = { fontSize: 11, padding: '7px 10px', borderRadius: 6, border: '0.5px solid var(--b2)', background: 'var(--s1)', color: 'var(--tx)', outline: 'none', width: '100%' }
-
   return (
     <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, animation: 'fadeIn .2s ease', alignItems: 'start' }}>
 
       {/* LEFT */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-        {/* triggers */}
+        {/* manual triggers */}
         <Card>
           <Label>manual triggers</Label>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -196,18 +216,18 @@ export default function ControlPage() {
         {/* standard schedule */}
         <Card>
           <Label>standard check schedule</Label>
-          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px', marginBottom: 10 }}>
+          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12, fontWeight: 500 }}>Random interval — n8n Workflow A</div>
                 <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>
-                  {scheduleLoading ? 'Loading…' : workflowActive === null ? 'Status unavailable' : workflowActive ? `Active · every ${intervalMinutes} min · ~30% fire rate` : 'Paused — activate in n8n'}
+                  {scheduleLoading ? 'Loading…' : workflowActive === null ? 'Status unavailable' : workflowActive ? `Active · every ${intervalMinutes} min · ~30% fire rate` : 'Paused'}
                 </div>
               </div>
               <Toggle on={workflowActive === true} onChange={toggleWorkflow} loading={toggleLoading} disabled={scheduleLoading || workflowActive === null} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <select value={intervalMinutes} onChange={e => setIntervalMinutes(parseInt(e.target.value))} style={{ ...selectStyle, flex: 1 }}>
+              <select value={intervalMinutes} onChange={e => setIntervalMinutes(parseInt(e.target.value))} style={{ ...SEL, flex: 1 }}>
                 {INTERVAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
               <Btn onClick={saveSchedule} variant="primary">Save</Btn>
@@ -216,31 +236,58 @@ export default function ControlPage() {
           <Status status={scheduleStatus} />
         </Card>
 
-        {/* surge schedule */}
+        {/* surge scheduler */}
         <Card>
-          <Label>surge schedule</Label>
-          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 500 }}>Automated surge — n8n Workflow E</div>
-                <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>
-                  {surgeScheduleActive ? `Active · ${SURGE_INTERVAL_OPTIONS.find(o => o.value === surgeIntervalMinutes)?.label || 'every 2 hours'} · 50% random gate` : 'Paused'}
-                </div>
-              </div>
-              <Toggle on={surgeScheduleActive} onChange={setSurgeScheduleActive} />
+          <Label>surge event scheduler</Label>
+          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8 }}>Schedule a surge event</div>
+            <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 10 }}>
+              Schedule up to 15 surge tests at exact dates/times — use when itch.io traffic is already high to test under real load conditions.
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <select value={surgeIntervalMinutes} onChange={e => setSurgeIntervalMinutes(parseInt(e.target.value))} style={{ ...selectStyle, flex: 1 }}>
-                {SURGE_INTERVAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <Btn variant="surge" onClick={() => {}}>Save</Btn>
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 4 }}>Label</div>
+              <Input value={newSurgeLabel} onChange={e => setNewSurgeLabel(e.target.value)} placeholder="e.g. itch.io new release day" />
             </div>
-            <div style={{ fontSize: 10, color: 'var(--hi)', fontFamily: 'var(--mono)', marginTop: 8 }}>
-              fires on average every {surgeIntervalMinutes * 2} min · Discord notified on each fire · runs overnight automatically
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 4 }}>Date & time (local)</div>
+              <input
+                type="datetime-local"
+                value={newSurgeAt}
+                onChange={e => setNewSurgeAt(e.target.value)}
+                min={new Date(Date.now() + 60000).toISOString().slice(0,16)}
+                max={new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString().slice(0,16)}
+                style={{ ...SEL, colorScheme: 'dark' }}
+              />
+              <div style={{ fontSize: 10, color: 'var(--hi)', marginTop: 4, fontFamily: 'var(--mono)' }}>up to 15 days in advance · n8n checks every minute</div>
             </div>
+            <Btn onClick={scheduleSurge} variant="surge" fullWidth>Schedule surge</Btn>
           </div>
-        </Card>
+          <Status status={surgeScheduleStatus} />
 
+          {/* upcoming events list */}
+          {scheduledSurges.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '.06em', fontFamily: 'var(--mono)', marginBottom: 8 }}>
+                upcoming — {scheduledSurges.length}/15
+              </div>
+              {scheduledSurges.map(s => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '0.5px solid var(--b1)' }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--amber)', flexShrink: 0, animation: 'pulse 2s infinite' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>
+                    <div style={{ fontSize: 10, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>
+                      {new Date(s.scheduled_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                  <Btn onClick={() => cancelSurge(s.id)} variant="danger" style={{ fontSize: 10, padding: '3px 8px' }}>Cancel</Btn>
+                </div>
+              ))}
+            </div>
+          )}
+          {scheduledSurges.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--hi)', fontFamily: 'var(--mono)', padding: '8px 0' }}>No surge events scheduled</div>
+          )}
+        </Card>
       </div>
 
       {/* RIGHT */}
@@ -297,7 +344,7 @@ export default function ControlPage() {
             <div style={{ width: 32, height: 32, background: 'rgb(88,101,242)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>🎮</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 500 }}>Discord Bot GamersLab</div>
-              <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 1 }}>#gamers-lab-monitor channel</div>
+              <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 1 }}>#gamers-lab-monitor · 30 min stats reports</div>
             </div>
             <Toggle on={true} onChange={() => {}} />
           </div>
