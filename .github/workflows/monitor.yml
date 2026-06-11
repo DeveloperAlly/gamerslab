@@ -82,17 +82,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
 
+      # ── Install everything BEFORE connecting VPN ──────────────────────────
+      # VPN routes ALL traffic through ProtonVPN — npm/apt must run first
+      # while the runner still has its own network access.
+
       - name: Install WireGuard
         run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard resolvconf
-
-      - name: Connect VPN (${{ matrix.country }})
-        run: |
-          echo "Connecting via ${{ matrix.conf }} → ${{ matrix.country }}"
-          sudo cp proton/${{ matrix.conf }} /etc/wireguard/wg0.conf
-          sudo wg-quick up wg0
-          sleep 3
-          ACTUAL=$(curl -s --max-time 10 "http://ip-api.com/json/?fields=query,countryCode" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['query'], d['countryCode'])" 2>/dev/null || echo "unknown unknown")
-          echo "Outbound IP: $ACTUAL (expected: ${{ matrix.country }})"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4.4.0
@@ -104,6 +99,21 @@ jobs:
           npm init -y
           npm install playwright@latest
           npx playwright install chromium --with-deps
+
+      # ── Connect VPN — all subsequent steps route through ProtonVPN ────────
+
+      - name: Connect VPN (${{ matrix.country }})
+        run: |
+          echo "Connecting via ${{ matrix.conf }} → ${{ matrix.country }}"
+          sudo cp proton/${{ matrix.conf }} /etc/wireguard/wg0.conf
+          sudo wg-quick up wg0
+          sleep 3
+          ACTUAL=$(curl -s --max-time 10 "http://ip-api.com/json/?fields=query,countryCode" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['query'], d['countryCode'])" \
+            2>/dev/null || echo "unknown unknown")
+          echo "Outbound IP: $ACTUAL (expected: ${{ matrix.country }})"
+
+      # ── Playwright runs through VPN tunnel ────────────────────────────────
 
       - name: Run Playwright monitor
         env:
@@ -179,7 +189,7 @@ jobs:
           print(f"Pushed: region={os.environ['REGION']} country={actual_country} ip={runner_ip} vpn={os.environ['VPN_CONF']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms login={data.get('login_prompt_shown')}")
           EOF
 
-      # Surge runs BEFORE VPN disconnect so surge traffic goes through VPN tunnel
+      # Surge runs before VPN disconnect so traffic goes through VPN tunnel
       - name: Surge parallel checks
         if: ${{ github.event.inputs.mode == 'surge' }}
         env:
@@ -189,7 +199,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: node .github/scripts/surge.js
 
-      # Always disconnect VPN last — after surge so all traffic routes through VPN
+      # Always disconnect VPN last
       - name: Disconnect VPN
         if: always()
         run: sudo wg-quick down wg0 || true
