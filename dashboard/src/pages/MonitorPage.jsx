@@ -11,9 +11,9 @@ function Spinner() {
   return <div style={{ width: 14, height: 14, border: '1.5px solid var(--b2)', borderTopColor: 'var(--acc)', borderRadius: '50%', animation: 'spin .7s linear infinite', flexShrink: 0 }} />
 }
 
-function StatCard({ label, value, sub, color, pulse }) {
+function StatCard({ label, value, sub, color, pulse, dim }) {
   return (
-    <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
+    <div style={{ background: dim ? 'var(--s0)' : 'var(--s1)', border: `0.5px solid ${dim ? 'var(--b1)' : 'var(--b2)'}`, borderRadius: 10, padding: '14px 16px' }}>
       <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '.08em', fontFamily: 'var(--mono)', marginBottom: 6 }}>{label}</div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 26, fontWeight: 500, color: color || 'var(--tx)', lineHeight: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
         {pulse && <div style={{ width: 7, height: 7, borderRadius: '50%', background: color || 'var(--acc)', animation: 'pulse 2s infinite', flexShrink: 0 }} />}
@@ -80,7 +80,7 @@ export default function MonitorPage() {
   useEffect(() => { load() }, [load])
   useEffect(() => { const t = setInterval(load, 60_000); return () => clearInterval(t) }, [load])
 
-  // Windowed stats — for charts, region table, live feed
+  // Windowed stats
   const windowTotal = rows.length
   const windowOk = rows.filter(r => r.status === 1).length
   const windowFailed = windowTotal - windowOk
@@ -94,7 +94,7 @@ export default function MonitorPage() {
   // All-time uptime
   const allTimeUptime = allTime.total ? +(allTime.ok / allTime.total * 100).toFixed(1) : 0
 
-  // Playwright health stats (windowed)
+  // Playwright health (windowed)
   const pwRows = rows.filter(r => r.page_title !== undefined && r.page_title !== null)
   const iframeFailures = pwRows.filter(r => r.game_iframe_loaded === false && r.status === 1).length
   const jsErrorRows = pwRows.filter(r => { try { return JSON.parse(r.js_errors || '[]').length > 0 } catch { return false } }).length
@@ -145,7 +145,7 @@ export default function MonitorPage() {
     <div style={{ padding: 16, animation: 'fadeIn .2s ease', overflowX: 'hidden' }}>
 
       {/* toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 3, background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 6, padding: 3 }}>
           {HOURS_OPTS.map(o => (
             <button key={o.v} onClick={() => setHours(o.v)} style={{
@@ -162,17 +162,18 @@ export default function MonitorPage() {
         <button onClick={load} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, border: '0.5px solid var(--b2)', background: 'transparent', color: 'var(--mu)' }}>↻</button>
       </div>
 
-      {/* stat cards — all-time totals */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+      {/* ── ALL TIME stats row ── */}
+      <div style={{ fontSize: 9, color: 'var(--hi)', textTransform: 'uppercase', letterSpacing: '.1em', fontFamily: 'var(--mono)', marginBottom: 5, paddingLeft: 2 }}>all time</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
         <StatCard
-          label="monitor checks"
+          label="total checks"
           value={allTime.total.toLocaleString()}
           sub="all time · browser visits"
         />
         <StatCard
           label="uptime"
           value={`${allTimeUptime}%`}
-          sub={`${allTime.ok.toLocaleString()} ok · ${allTime.failed.toLocaleString()} failed · all time`}
+          sub={`${allTime.ok.toLocaleString()} ok · ${allTime.failed.toLocaleString()} failed`}
           color={allTimeUptime === 100 ? 'var(--green)' : allTimeUptime >= 95 ? 'var(--amber)' : 'var(--red)'}
           pulse={allTimeUptime === 100}
         />
@@ -186,6 +187,37 @@ export default function MonitorPage() {
           label="surge runs"
           value={allTime.surgeTotal.toLocaleString()}
           sub="all time · campaign tests"
+        />
+      </div>
+
+      {/* ── WINDOWED stats row ── */}
+      <div style={{ fontSize: 9, color: 'var(--hi)', textTransform: 'uppercase', letterSpacing: '.1em', fontFamily: 'var(--mono)', marginBottom: 5, paddingLeft: 2 }}>last {hoursLabel}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
+        <StatCard
+          label="checks"
+          value={windowTotal.toLocaleString()}
+          sub={`last ${hoursLabel} · browser visits`}
+          dim
+        />
+        <StatCard
+          label="uptime"
+          value={`${windowUptime}%`}
+          sub={`${windowOk.toLocaleString()} ok · ${windowFailed} failed`}
+          color={windowUptime === 100 ? 'var(--green)' : windowUptime >= 95 ? 'var(--amber)' : 'var(--red)'}
+          dim
+        />
+        <StatCard
+          label="avg ttfb"
+          value={`${avgTtfb}ms`}
+          sub={`p95 ${p95Ttfb}ms`}
+          color={avgTtfb < 200 ? 'var(--green)' : avgTtfb < 500 ? 'var(--amber)' : 'var(--red)'}
+          dim
+        />
+        <StatCard
+          label="surge runs"
+          value={windowSurge.toLocaleString()}
+          sub={`last ${hoursLabel}`}
+          dim
         />
       </div>
 
@@ -226,7 +258,7 @@ export default function MonitorPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 500 }}>monitor checks over time</div>
+            <div style={{ fontSize: 11, fontWeight: 500 }}>checks over time · last {hoursLabel}</div>
             <div style={{ display: 'flex', gap: 12 }}>
               {[['#00c97a','ok'],['#f03e3e','failed']].map(([c,l]) => (
                 <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--mu)' }}>
@@ -247,7 +279,7 @@ export default function MonitorPage() {
           </ResponsiveContainer>
         </div>
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 12 }}>avg ttfb trend</div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 12 }}>avg ttfb trend · last {hoursLabel}</div>
           <ResponsiveContainer width="100%" height={130}>
             <AreaChart data={timelineData} margin={{ top: 0, right: 0, bottom: 0, left: -28 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
