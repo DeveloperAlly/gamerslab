@@ -13,13 +13,13 @@ function Spinner() {
 
 function StatCard({ label, value, sub, color, pulse }) {
   return (
-    <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '.08em', fontFamily: 'var(--mono)' }}>{label}</div>
+    <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
+      <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '.08em', fontFamily: 'var(--mono)', marginBottom: 6 }}>{label}</div>
       <div style={{ fontFamily: 'var(--mono)', fontSize: 26, fontWeight: 500, color: color || 'var(--tx)', lineHeight: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
         {pulse && <div style={{ width: 7, height: 7, borderRadius: '50%', background: color || 'var(--acc)', animation: 'pulse 2s infinite', flexShrink: 0 }} />}
         {value}
       </div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 11, color: 'var(--mu)', fontFamily: 'var(--mono)', marginTop: 4 }}>{sub}</div>}
     </div>
   )
 }
@@ -36,9 +36,7 @@ const CustomTooltip = ({ active, payload, label }) => {
   return (
     <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b3)', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
       <div style={{ color: 'var(--mu)', marginBottom: 4, fontFamily: 'var(--mono)' }}>{label}</div>
-      {payload.map(p => (
-        <div key={p.name} style={{ color: p.color, fontFamily: 'var(--mono)' }}>{p.name}: {p.value}</div>
-      ))}
+      {payload.map(p => <div key={p.name} style={{ color: p.color, fontFamily: 'var(--mono)' }}>{p.name}: {p.value}</div>)}
     </div>
   )
 }
@@ -57,17 +55,13 @@ export default function MonitorPage() {
       const data = await api.results(hours)
       setRows(Array.isArray(data) ? data : [])
       setLastUpdated(new Date())
-    } catch (e) {
-      setError(e.message)
-      console.error(e)
-    }
+    } catch (e) { setError(e.message); console.error(e) }
     setLoading(false)
   }, [hours])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { const t = setInterval(load, 60_000); return () => clearInterval(t) }, [load])
 
-  // ── derived metrics ──────────────────────────────────────────────────────
   const total = rows.length
   const ok = rows.filter(r => r.status === 1).length
   const failed = total - ok
@@ -78,7 +72,6 @@ export default function MonitorPage() {
   const surgeRuns = rows.filter(r => r.mode === 'surge').length
   const hoursLabel = hours < 24 ? `${hours}h` : hours === 168 ? '7d' : hours === 720 ? '30d' : '24h'
 
-  // ── timeline chart data ──────────────────────────────────────────────────
   const bucketMs = hours <= 1 ? 5*60*1000 : hours <= 6 ? 15*60*1000 : hours <= 24 ? 3600*1000 : 6*3600*1000
   const buckets = {}
   rows.forEach(r => {
@@ -88,91 +81,76 @@ export default function MonitorPage() {
     if (r.ttfb_ms) buckets[t].ttfb.push(r.ttfb_ms)
   })
   const timelineData = Object.keys(buckets).map(Number).sort().map(t => ({
-    time: hours <= 24
-      ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' }),
-    ok: buckets[t].ok,
-    fail: buckets[t].fail,
+    time: hours <= 24 ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+    ok: buckets[t].ok, fail: buckets[t].fail,
     avgTtfb: buckets[t].ttfb.length ? Math.round(buckets[t].ttfb.reduce((a,b)=>a+b,0)/buckets[t].ttfb.length) : 0,
   }))
 
-  // ── by region ────────────────────────────────────────────────────────────
   const byRegion = {}
   rows.forEach(r => {
-    if (!byRegion[r.region]) byRegion[r.region] = { ok: 0, fail: 0, ttfbs: [], colos: new Set() }
+    if (!byRegion[r.region]) byRegion[r.region] = { ok: 0, fail: 0, ttfbs: [], colos: new Set(), ips: new Set() }
     r.status === 1 ? byRegion[r.region].ok++ : byRegion[r.region].fail++
     if (r.ttfb_ms) byRegion[r.region].ttfbs.push(r.ttfb_ms)
     if (r.cf_colo) byRegion[r.region].colos.add(r.cf_colo)
+    if (r.runner_ip) byRegion[r.region].ips.add(r.runner_ip)
   })
-
   const regionData = REGIONS.map(reg => {
     const d = byRegion[reg]
-    if (!d) return { reg, ok: 0, fail: 0, total: 0, avgT: 0, uptime: 0, colos: '' }
+    if (!d) return { reg, ok: 0, fail: 0, total: 0, avgT: 0, uptime: 0, colos: '', ips: '' }
     const tot = d.ok + d.fail
     const avgT = d.ttfbs.length ? Math.round(d.ttfbs.reduce((a,b)=>a+b,0)/d.ttfbs.length) : 0
-    return { reg, ok: d.ok, fail: d.fail, total: tot, avgT, uptime: tot ? Math.round(d.ok/tot*100) : 0, colos: [...d.colos].join(', ') }
+    return { reg, ok: d.ok, fail: d.fail, total: tot, avgT, uptime: tot ? Math.round(d.ok/tot*100) : 0, colos: [...d.colos].join(', '), ips: [...d.ips].slice(0,3).join(', ') }
   })
 
-  // ── feed ─────────────────────────────────────────────────────────────────
   const feed = rows.slice(0, 30)
+
+  // Unique IPs seen across all regions in this window
+  const allIps = [...new Set(rows.filter(r => r.runner_ip).map(r => r.runner_ip))]
 
   if (error) return (
     <div style={{ padding: 24, color: 'var(--red)', fontFamily: 'var(--mono)', fontSize: 12 }}>
-      Error loading data: {error}<br/>
-      <button onClick={load} style={{ marginTop: 8, fontSize: 11, padding: '4px 10px', borderRadius: 5, border: '0.5px solid var(--red)', background: 'transparent', color: 'var(--red)', cursor: 'pointer' }}>retry</button>
+      Error: {error} <button onClick={load} style={{ marginTop: 8, fontSize: 11, padding: '4px 10px', borderRadius: 5, border: '0.5px solid var(--red)', background: 'transparent', color: 'var(--red)', cursor: 'pointer', marginLeft: 8 }}>retry</button>
     </div>
   )
 
   return (
-    <div style={{ padding: '16px', animation: 'fadeIn .2s ease', overflowX: 'hidden' }}>
+    <div style={{ padding: 16, animation: 'fadeIn .2s ease', overflowX: 'hidden' }}>
 
       {/* toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 3, background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 6, padding: 3 }}>
           {HOURS_OPTS.map(o => (
             <button key={o.v} onClick={() => setHours(o.v)} style={{
-              fontSize: 11, padding: '3px 10px', borderRadius: 4,
-              border: 'none',
+              fontSize: 11, padding: '3px 10px', borderRadius: 4, border: 'none',
               background: hours === o.v ? 'var(--acc)' : 'transparent',
               color: hours === o.v ? '#000' : 'var(--mu)',
-              fontWeight: hours === o.v ? 500 : 400,
-              transition: 'all .15s',
+              fontWeight: hours === o.v ? 500 : 400, transition: 'all .15s',
             }}>{o.label}</button>
           ))}
         </div>
         <div style={{ flex: 1 }} />
         {loading && <Spinner />}
-        {lastUpdated && !loading && (
-          <div style={{ fontSize: 10, color: 'var(--hi)', fontFamily: 'var(--mono)' }}>
-            {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </div>
-        )}
+        {lastUpdated && !loading && <div style={{ fontSize: 10, color: 'var(--hi)', fontFamily: 'var(--mono)' }}>{lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>}
         <button onClick={load} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, border: '0.5px solid var(--b2)', background: 'transparent', color: 'var(--mu)' }}>↻</button>
       </div>
 
       {/* stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
         <StatCard label="total runs" value={total.toLocaleString()} sub={`last ${hoursLabel}`} />
-        <StatCard
-          label="uptime"
-          value={`${uptime}%`}
-          sub={`${ok.toLocaleString()} ok · ${failed} failed`}
-          color={uptime === 100 ? 'var(--green)' : uptime >= 95 ? 'var(--amber)' : 'var(--red)'}
-          pulse={uptime === 100}
-        />
-        <StatCard label="avg ttfb" value={`${avgTtfb}ms`} sub={`p95 ${p95Ttfb}ms`} color={avgTtfb < 200 ? 'var(--green)' : avgTtfb < 500 ? 'var(--amber)' : 'var(--red)'} />
+        <StatCard label="uptime" value={`${uptime}%`} sub={`${ok.toLocaleString()} ok · ${failed} failed`}
+          color={uptime === 100 ? 'var(--green)' : uptime >= 95 ? 'var(--amber)' : 'var(--red)'} pulse={uptime === 100} />
+        <StatCard label="avg ttfb" value={`${avgTtfb}ms`} sub={`p95 ${p95Ttfb}ms`}
+          color={avgTtfb < 200 ? 'var(--green)' : avgTtfb < 500 ? 'var(--amber)' : 'var(--red)'} />
         <StatCard label="surge runs" value={surgeRuns} sub="campaign tests" />
       </div>
 
-      {/* charts row */}
+      {/* charts */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
-
-        {/* runs over time */}
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 500 }}>runs over time</div>
             <div style={{ display: 'flex', gap: 12 }}>
-              {[['#00c97a', 'ok'], ['#f03e3e', 'failed']].map(([c, l]) => (
+              {[['#00c97a','ok'],['#f03e3e','failed']].map(([c,l]) => (
                 <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--mu)' }}>
                   <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />{l}
                 </div>
@@ -182,57 +160,54 @@ export default function MonitorPage() {
           <ResponsiveContainer width="100%" height={130}>
             <BarChart data={timelineData} margin={{ top: 0, right: 0, bottom: 0, left: -28 }} barSize={timelineData.length > 24 ? 3 : 8}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-              <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#44445a' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 9, fill: '#44445a' }} tickLine={false} axisLine={false} />
+              <XAxis dataKey="time" tick={{ fontSize: 9, fill: 'var(--mu)' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 9, fill: 'var(--mu)' }} tickLine={false} axisLine={false} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="ok" stackId="a" fill="#00c97a" radius={[0,0,0,0]} />
+              <Bar dataKey="ok" stackId="a" fill="#00c97a" />
               <Bar dataKey="fail" stackId="a" fill="#f03e3e" radius={[2,2,0,0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-
-        {/* ttfb trend */}
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 12 }}>avg ttfb trend</div>
           <ResponsiveContainer width="100%" height={130}>
             <AreaChart data={timelineData} margin={{ top: 0, right: 0, bottom: 0, left: -28 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-              <XAxis dataKey="time" tick={{ fontSize: 9, fill: '#44445a' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 9, fill: '#44445a' }} tickLine={false} axisLine={false} unit="ms" />
+              <XAxis dataKey="time" tick={{ fontSize: 9, fill: 'var(--mu)' }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 9, fill: 'var(--mu)' }} tickLine={false} axisLine={false} unit="ms" />
               <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="avgTtfb" stroke="#4d94ff" fill="rgba(77,148,255,0.08)" strokeWidth={1.5} dot={false} name="ttfb" />
+              <Area type="monotone" dataKey="avgTtfb" stroke="var(--acc)" fill="var(--acc-dim)" strokeWidth={1.5} dot={false} name="ttfb" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
 
       {/* regions + feed */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
 
         {/* region table */}
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 50px 54px 54px', gap: 8, marginBottom: 8, paddingBottom: 8, borderBottom: '0.5px solid var(--b1)' }}>
-            <div />
-            <div style={{ fontSize: 9, color: 'var(--hi)', textTransform: 'uppercase', letterSpacing: '.06em' }}>region</div>
-            <div style={{ fontSize: 9, color: 'var(--hi)', textTransform: 'uppercase', letterSpacing: '.06em', textAlign: 'right' }}>uptime</div>
-            <div style={{ fontSize: 9, color: 'var(--hi)', textTransform: 'uppercase', letterSpacing: '.06em', textAlign: 'right' }}>avg ttfb</div>
-            <div style={{ fontSize: 9, color: 'var(--hi)', textTransform: 'uppercase', letterSpacing: '.06em', textAlign: 'right' }}>pop</div>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 10 }}>regions</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '16px 1fr 48px 52px 40px', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottom: '0.5px solid var(--b1)' }}>
+            {['','region','uptime','ttfb','pop'].map(h => (
+              <div key={h} style={{ fontSize: 9, color: 'var(--hi)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: h !== '' && h !== 'region' ? 'right' : 'left' }}>{h}</div>
+            ))}
           </div>
-          {regionData.map(({ reg, ok, fail, total, avgT, uptime: ut, colos }) => (
-            <div key={reg} style={{ display: 'grid', gridTemplateColumns: '20px 1fr 50px 54px 54px', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '0.5px solid var(--b1)' }}>
+          {regionData.map(({ reg, ok, fail, total, avgT, uptime: ut, colos, ips }) => (
+            <div key={reg} style={{ display: 'grid', gridTemplateColumns: '16px 1fr 48px 52px 40px', gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: '0.5px solid var(--b1)' }}>
               <StatusDot ok={ok} fail={fail} total={total} />
               <div>
-                <div style={{ fontSize: 12, fontWeight: 500 }}>{FLAGS[reg]} {REGION_NAMES[reg]}</div>
-                <div style={{ fontSize: 10, color: 'var(--hi)', fontFamily: 'var(--mono)' }}>{total} runs</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--tx)' }}>{FLAGS[reg]} {REGION_NAMES[reg]}</div>
+                <div style={{ fontSize: 9, color: 'var(--mu)', fontFamily: 'var(--mono)', marginTop: 1 }}>{total} runs{ips ? ` · ${ips.split(',')[0].trim()}` : ''}</div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: ut === 100 ? 'var(--green)' : ut >= 95 ? 'var(--amber)' : ut === 0 && total === 0 ? 'var(--hi)' : 'var(--red)' }}>{total ? `${ut}%` : '—'}</div>
+              <div style={{ textAlign: 'right', fontSize: 12, fontFamily: 'var(--mono)', color: ut === 100 ? 'var(--green)' : ut >= 95 ? 'var(--amber)' : total === 0 ? 'var(--hi)' : 'var(--red)' }}>
+                {total ? `${ut}%` : '—'}
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: avgT < 200 ? 'var(--tx)' : avgT < 500 ? 'var(--amber)' : 'var(--red)' }}>{avgT ? `${avgT}ms` : '—'}</div>
+              <div style={{ textAlign: 'right', fontSize: 12, fontFamily: 'var(--mono)', color: avgT < 200 ? 'var(--tx)' : avgT < 500 ? 'var(--amber)' : 'var(--red)' }}>
+                {avgT ? `${avgT}ms` : '—'}
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--mu)' }}>{colos || '—'}</div>
+              <div style={{ textAlign: 'right', fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--mu)' }}>
+                {colos || '—'}
               </div>
             </div>
           ))}
@@ -244,30 +219,25 @@ export default function MonitorPage() {
             <div style={{ fontSize: 11, fontWeight: 500 }}>live feed</div>
             {loading && <Spinner />}
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 320 }}>
-            {feed.length === 0 && (
-              <div style={{ color: 'var(--hi)', fontSize: 12, textAlign: 'center', padding: '2rem 0', fontFamily: 'var(--mono)' }}>no data in this range</div>
-            )}
+          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 280 }}>
+            {feed.length === 0 && <div style={{ color: 'var(--mu)', fontSize: 12, textAlign: 'center', padding: '2rem 0', fontFamily: 'var(--mono)' }}>no data in this range</div>}
             {feed.map((r, i) => {
               const isOk = r.status === 1
               const isSurge = r.mode === 'surge'
-              const badgeColor = isOk ? 'var(--green)' : 'var(--red)'
-              const badgeBg = isOk ? 'var(--green-dim)' : 'var(--red-dim)'
               const badgeText = isSurge ? 'surge' : isOk ? 'ok' : 'fail'
-              const surgeColor = isSurge ? 'var(--amber)' : badgeColor
-              const surgeBg = isSurge ? 'var(--amber-dim)' : badgeBg
+              const badgeColor = isSurge ? 'var(--amber)' : isOk ? 'var(--green)' : 'var(--red)'
+              const badgeBg = isSurge ? 'var(--amber-dim)' : isOk ? 'var(--green-dim)' : 'var(--red-dim)'
               return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '0.5px solid var(--b1)', animation: i === 0 ? 'slideIn .2s ease' : 'none' }}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--hi)', flexShrink: 0, width: 40 }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 0', borderBottom: '0.5px solid var(--b1)' }}>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--hi)', flexShrink: 0, width: 38 }}>
                     {new Date(r.checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
-                  <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, background: surgeBg, color: surgeColor, flexShrink: 0, fontFamily: 'var(--mono)' }}>
-                    {badgeText}
-                  </span>
-                  <div style={{ fontSize: 10, color: 'var(--mu)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {FLAGS[r.region]} {r.region}
-                    {isOk && r.ttfb_ms && <span style={{ color: 'var(--hi)' }}> · {Math.round(r.ttfb_ms)}ms</span>}
-                    {r.cf_colo && <span style={{ color: 'var(--hi)' }}> · {r.cf_colo}</span>}
+                  <span style={{ fontSize: 9, padding: '2px 5px', borderRadius: 3, background: badgeBg, color: badgeColor, flexShrink: 0, fontFamily: 'var(--mono)' }}>{badgeText}</span>
+                  <div style={{ fontSize: 10, color: 'var(--tx)', flex: 1, overflow: 'hidden' }}>
+                    <span style={{ fontWeight: 500 }}>{FLAGS[r.region]} {r.region}</span>
+                    {isOk && r.ttfb_ms && <span style={{ color: 'var(--mu)' }}> · {Math.round(r.ttfb_ms)}ms</span>}
+                    {r.cf_colo && <span style={{ color: 'var(--mu)' }}> · {r.cf_colo}</span>}
+                    {r.runner_ip && <span style={{ color: 'var(--hi)', fontFamily: 'var(--mono)', fontSize: 9 }}> · {r.runner_ip}</span>}
                     {!isOk && <span style={{ color: 'var(--red)' }}> · failed</span>}
                   </div>
                 </div>
@@ -276,6 +246,18 @@ export default function MonitorPage() {
           </div>
         </div>
       </div>
+
+      {/* IPs panel */}
+      {allIps.length > 0 && (
+        <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 10 }}>runner IPs this window <span style={{ fontSize: 10, color: 'var(--mu)', fontWeight: 400 }}>— egress IPs used to reach itch.io</span></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {allIps.map(ip => (
+              <span key={ip} style={{ fontFamily: 'var(--mono)', fontSize: 10, padding: '3px 8px', borderRadius: 4, background: 'var(--s2)', border: '0.5px solid var(--b2)', color: 'var(--tx)' }}>{ip}</span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
