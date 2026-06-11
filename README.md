@@ -8,6 +8,27 @@ Geo-distributed availability and load testing pipeline for a single URL. Checks 
 **Stack:** GitHub Actions · Cloudflare Workers · n8n · Supabase  
 **Cost:** $0 (all free tiers)
 
+
+# Requirements
+
+## Functional requirements:
+
+  - Monitor a target URL (https://uprisinglabs.itch.io/bug-seek-expedition-edition) from 6 geo regions every 5 minutes automatically
+  - Surge test — 20 concurrent requests per region on demand, simulating campaign traffic spike
+  - Store results in Supabase: region, status, TTFB, Cloudflare PoP, runner IP, mode, timestamp
+  - Alert on failure via Discord bot to #gamers-lab-monitor
+  - Dashboard can change the monitored target URL and save it
+  - Dashboard can trigger standard and surge checks manually
+  - Dashboard schedule controls actually modify n8n — toggle activates/deactivates, interval dropdown saves to n8n
+  - Auto-refresh dashboard every 60s
+
+## UI requirements:
+
+  - Brand colors from GamersLab logo (orange #e8621a accent, warm dark background)
+  - Monitor page: stat cards (total runs, uptime %, avg TTFB, surge runs), stacked bar timeline, TTFB trend line, region table with uptime/TTFB/PoP per region, live feed showing runner IPs, runner IPs panel
+  - Control page: standard trigger, surge trigger, real schedule toggle wired to n8n, interval selector saving to n8n, target URL management with saved targets list, Discord test button
+  - Password-protected lock screen
+
 ---
 
 ## How it works
