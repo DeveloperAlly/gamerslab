@@ -1,0 +1,99 @@
+{
+  "name": "Workflow D — Target URL sync",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "update-target",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "target-webhook",
+      "name": "Target webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "update-target"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url } }];"
+      },
+      "id": "validate-url",
+      "name": "Validate URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "schema": { "value": "public" },
+        "table": { "value": "targets" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "url": "={{ $json.url }}",
+            "name": "={{ $json.name }}",
+            "set_at": "={{ new Date().toISOString() }}",
+            "active": true
+          }
+        },
+        "options": {}
+      },
+      "id": "save-to-supabase",
+      "name": "Save to Supabase",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "supabaseApi": { "id": "supabase-creds", "name": "Supabase" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendMessage",
+        "webhookUri": "={{$env.DISCORD_WEBHOOK_URL}}",
+        "text": "=🎯 **Monitor target updated**\n\n**URL:** {{ $json.url }}\n**Name:** {{ $json.name }}"
+      },
+      "id": "notify-discord",
+      "name": "Notify Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "credentials": {
+        "discordWebhookApi": {
+          "id": "discord-webhook",
+          "name": "Discord webhook"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"updated\": true }",
+        "options": {}
+      },
+      "id": "respond-target",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1100, 300]
+    }
+  ],
+  "connections": {
+    "Target webhook": {
+      "main": [[{ "node": "Validate URL", "type": "main", "index": 0 }]]
+    },
+    "Validate URL": {
+      "main": [[{ "node": "Save to Supabase", "type": "main", "index": 0 }]]
+    },
+    "Save to Supabase": {
+      "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
+    },
+    "Notify Discord": {
+      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

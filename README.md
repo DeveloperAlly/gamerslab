@@ -1,5 +1,5 @@
 
-![alt text](image.png)
+![alt text](assets/architecture1.png)
 
 # geo-monitor
 
@@ -271,3 +271,57 @@ No AWS account, no self-hosted infrastructure, no cost.
 ## License
 
 MIT
+
+---
+
+# Control Hub Dashboard
+
+The app is an internal ops dashboard for a game monitoring pipeline. The aesthetic should feel like mission control — dark, precise, data-dense but never cluttered. Monospace for data, clean sans for UI. The signature element: a real-time activity feed that makes the pipeline feel alive. Two pages: **Monitor** (analytics + live feed) and **Control** (triggers + schedule + target config).
+
+---
+
+![Architecture Diagram](assets/gamerslab_monitor_architecture.svg)
+
+### Dashboard Mockup
+![Dashboard View](assets/gamerslab_dashboard_mockup.png)
+
+## Architecture decisions
+
+The React app at `gamerslab.space` never calls GitHub or n8n directly — everything goes through a single **Cloudflare Worker API** that acts as the backend. This keeps secrets server-side and gives you one place to add auth later.
+
+## API stubs needed
+
+The Worker needs 5 endpoints:
+
+```
+GET  /api/results?hours=24          → reads Supabase monitor_results
+GET  /api/status                    → returns last run per region (live status)
+POST /api/trigger                   → dispatches GitHub Actions workflow_dispatch
+                                      body: { mode: 'standard' | 'surge', regions?: string[] }
+POST /api/schedule                  → updates n8n workflow schedule via n8n REST API
+                                      body: { interval: number, regions: string[] }
+PUT  /api/target                    → updates TARGET_URL secret in Cloudflare Worker
+                                      + stores in Supabase targets table for history
+                                      body: { url: string, name?: string }
+```
+
+## Additional n8n workflow needed
+
+Yes — for the target URL change, you need a 4th n8n workflow: **Workflow D — target URL sync**. When the Worker receives a `PUT /api/target`, it updates the Cloudflare Worker secret AND posts to an n8n webhook that restarts the scheduler with the new target. Without this, existing scheduled runs would still hit the old URL.
+
+## Discord vs Slack
+
+Workflow C (alerting) needs updating — swap the Slack node for an HTTP Request node posting to a Discord webhook URL. Discord's webhook format is just `{ "content": "message" }` which is simpler than Slack blocks anyway.
+
+## Two-page React structure
+
+```
+/           → Monitor page (analytics, live feed, region table, time range)
+/control    → Control page (manual triggers, schedule, target URL, Discord config)
+```
+
+Cloudflare Pages deploys from `dashboard/` folder in the repo, auto-builds on push.
+
+---
+
+Ready to build? The build order would be: Worker API → React scaffold → Monitor page → Control page → Discord alert update. Which piece do you want first?

@@ -1,0 +1,253 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0c0c0e;--s1:#131316;--s2:#1a1a1f;--s3:#222228;
+  --b1:rgba(255,255,255,0.06);--b2:rgba(255,255,255,0.1);--b3:rgba(255,255,255,0.16);
+  --tx:#e8e8ec;--mu:#8888a0;--hi:#4a4a60;
+  --green:#00cc7a;--red:#f03e3e;--amber:#f5a623;--blue:#4d94ff;
+  --acc:#00cc7a;
+  --mono:'IBM Plex Mono',monospace;--sans:'Inter',sans-serif;
+}
+body{background:var(--bg);font-family:var(--sans);color:var(--tx);font-size:13px}
+.frame{border:0.5px solid var(--b2);border-radius:10px;overflow:hidden;margin-bottom:24px}
+.titlebar{background:var(--s1);border-bottom:0.5px solid var(--b1);padding:8px 14px;display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%}
+.url{font-family:var(--mono);font-size:11px;color:var(--mu);margin-left:8px}
+nav{background:var(--s1);border-bottom:0.5px solid var(--b1);padding:0 16px;display:flex;align-items:center;gap:0;height:40px}
+.nav-logo{font-family:var(--mono);font-size:11px;color:var(--acc);letter-spacing:.08em;margin-right:20px}
+.nav-tab{font-size:12px;padding:0 14px;height:40px;display:flex;align-items:center;border-bottom:2px solid transparent;color:var(--mu);cursor:pointer;transition:all .15s;white-space:nowrap}
+.nav-tab.active{color:var(--tx);border-bottom-color:var(--acc)}
+.nav-spacer{flex:1}
+.nav-target{font-family:var(--mono);font-size:10px;color:var(--mu);background:var(--s2);border:0.5px solid var(--b2);border-radius:4px;padding:3px 8px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.page{background:var(--bg);padding:16px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+.mc{background:var(--s1);border:0.5px solid var(--b1);border-radius:8px;padding:12px 14px}
+.mc-label{font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.mc-val{font-family:var(--mono);font-size:22px;font-weight:500;line-height:1}
+.mc-val.g{color:var(--green)}
+.mc-val.r{color:var(--red)}
+.mc-sub{font-size:10px;color:var(--hi);margin-top:4px;font-family:var(--mono)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.card{background:var(--s1);border:0.5px solid var(--b1);border-radius:8px;padding:12px 14px}
+.card-title{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);margin-bottom:10px;font-family:var(--mono)}
+.region-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--b1)}
+.region-row:last-child{border-bottom:none}
+.rdot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.rdot.ok{background:var(--green)}
+.rdot.partial{background:var(--amber)}
+.rname{font-size:11px;width:90px;flex-shrink:0}
+.rbar{flex:1;background:var(--s3);border-radius:2px;height:4px}
+.rbfill{height:100%;border-radius:2px;background:var(--green)}
+.rttfb{font-family:var(--mono);font-size:10px;color:var(--mu);width:42px;text-align:right;flex-shrink:0}
+.rcolo{font-family:var(--mono);font-size:10px;color:var(--hi);width:28px;text-align:right}
+.feed-item{display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--b1);font-size:11px}
+.feed-item:last-child{border-bottom:none}
+.feed-time{font-family:var(--mono);color:var(--hi);white-space:nowrap;flex-shrink:0;width:44px}
+.feed-badge{font-size:9px;padding:2px 6px;border-radius:3px;white-space:nowrap;flex-shrink:0}
+.badge-ok{background:rgba(0,204,122,.15);color:var(--green)}
+.badge-fail{background:rgba(240,62,62,.15);color:var(--red)}
+.badge-surge{background:rgba(245,166,35,.15);color:var(--amber)}
+.feed-msg{color:var(--mu);line-height:1.4}
+.chart-placeholder{background:var(--s2);border-radius:4px;height:80px;display:flex;align-items:flex-end;padding:8px;gap:3px}
+.bar{background:var(--green);border-radius:2px 2px 0 0;flex:1;opacity:.7}
+.bar.fail{background:var(--red);opacity:.5}
+
+.ctrl-section{margin-bottom:14px}
+.ctrl-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);font-family:var(--mono);margin-bottom:8px}
+.ctrl-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.btn{font-size:11px;padding:7px 14px;border-radius:6px;border:0.5px solid var(--b3);background:transparent;color:var(--tx);cursor:pointer;font-family:var(--sans);white-space:nowrap}
+.btn.primary{background:var(--acc);color:#000;border-color:var(--acc);font-weight:500}
+.btn.danger{border-color:rgba(240,62,62,.4);color:var(--red)}
+.input{font-size:11px;padding:7px 10px;border-radius:6px;border:0.5px solid var(--b2);background:var(--s2);color:var(--tx);font-family:var(--mono);width:100%}
+.schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sch-card{background:var(--s2);border:0.5px solid var(--b1);border-radius:6px;padding:10px 12px}
+.sch-title{font-size:11px;font-weight:500;margin-bottom:4px}
+.sch-sub{font-size:10px;color:var(--mu)}
+.toggle{width:28px;height:16px;background:var(--s3);border-radius:8px;position:relative;cursor:pointer;margin-left:auto;flex-shrink:0}
+.toggle.on{background:var(--acc)}
+.toggle-knob{width:12px;height:12px;background:#fff;border-radius:50%;position:absolute;top:2px;left:2px;transition:left .15s}
+.toggle.on .toggle-knob{left:14px}
+.discord-card{background:rgba(88,101,242,.08);border:0.5px solid rgba(88,101,242,.25);border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:10px}
+.discord-icon{width:28px;height:28px;background:rgb(88,101,242);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.target-card{background:var(--s2);border:0.5px solid var(--b1);border-radius:6px;padding:10px 12px;margin-bottom:8px}
+.target-url{font-family:var(--mono);font-size:10px;color:var(--acc);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:9px;padding:2px 6px;border-radius:3px;background:var(--s3);color:var(--mu);margin-right:4px}
+</style>
+
+<div style="padding:8px 0 4px;font-size:11px;color:var(--mu);font-family:var(--mono);text-align:center;letter-spacing:.05em">page 1 — monitor</div>
+
+<div class="frame">
+  <div class="titlebar">
+    <div class="dot" style="background:#ff5f57"></div>
+    <div class="dot" style="background:#ffbd2e"></div>
+    <div class="dot" style="background:#28c840"></div>
+    <div class="url">gamerslab.space</div>
+  </div>
+  <nav>
+    <div class="nav-logo">GL / MONITOR</div>
+    <div class="nav-tab active">Monitor</div>
+    <div class="nav-tab">Control</div>
+    <div class="nav-spacer"></div>
+    <div class="nav-target">uprisinglabs.itch.io/bug-seek-expedition-edition</div>
+  </nav>
+  <div class="page">
+    <div class="metrics">
+      <div class="mc"><div class="mc-label">total runs</div><div class="mc-val">2,847</div><div class="mc-sub">last 24h</div></div>
+      <div class="mc"><div class="mc-label">uptime</div><div class="mc-val g">99%</div><div class="mc-sub">473 ok / 4 failed</div></div>
+      <div class="mc"><div class="mc-label">avg ttfb</div><div class="mc-val">68<span style="font-size:12px;color:var(--mu)">ms</span></div><div class="mc-sub">all regions</div></div>
+      <div class="mc"><div class="mc-label">surge runs</div><div class="mc-val">3</div><div class="mc-sub">campaign tests</div></div>
+    </div>
+
+    <div style="background:var(--s1);border:0.5px solid var(--b1);border-radius:8px;padding:12px 14px;margin-bottom:8px">
+      <div class="card-title">runs over time — 24h</div>
+      <div class="chart-placeholder">
+        <div class="bar" style="height:30%"></div><div class="bar" style="height:45%"></div><div class="bar" style="height:60%"></div><div class="bar" style="height:55%"></div><div class="bar" style="height:70%"></div><div class="bar" style="height:65%"></div><div class="bar" style="height:80%"></div><div class="bar" style="height:75%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:85%"></div><div class="bar" style="height:95%"></div><div class="bar fail" style="height:20%"></div><div class="bar" style="height:88%"></div><div class="bar" style="height:92%"></div><div class="bar" style="height:100%"></div><div class="bar" style="height:88%"></div><div class="bar" style="height:85%"></div><div class="bar" style="height:90%"></div><div class="bar" style="height:78%"></div><div class="bar" style="height:82%"></div><div class="bar" style="height:70%"></div><div class="bar" style="height:65%"></div><div class="bar" style="height:55%"></div><div class="bar" style="height:48%"></div>
+      </div>
+    </div>
+
+    <div class="row2">
+      <div class="card">
+        <div class="card-title">regions</div>
+        <div class="region-row"><div class="rdot ok"></div><div class="rname">🇺🇸 us-east</div><div class="rbar"><div class="rbfill" style="width:95%"></div></div><div class="rttfb">52ms</div><div class="rcolo">IAD</div></div>
+        <div class="region-row"><div class="rdot ok"></div><div class="rname">🇪🇺 eu-west</div><div class="rbar"><div class="rbfill" style="width:88%"></div></div><div class="rttfb">71ms</div><div class="rcolo">LHR</div></div>
+        <div class="region-row"><div class="rdot ok"></div><div class="rname">🇸🇬 ap-southeast</div><div class="rbar"><div class="rbfill" style="width:80%"></div></div><div class="rttfb">89ms</div><div class="rcolo">SIN</div></div>
+        <div class="region-row"><div class="rdot ok"></div><div class="rname">🇧🇷 sa-east</div><div class="rbar"><div class="rbfill" style="width:74%"></div></div><div class="rttfb">104ms</div><div class="rcolo">GRU</div></div>
+        <div class="region-row"><div class="rdot partial"></div><div class="rname">🇸🇦 me-south</div><div class="rbar"><div class="rbfill" style="width:60%;background:var(--amber)"></div></div><div class="rttfb">138ms</div><div class="rcolo">DXB</div></div>
+        <div class="region-row"><div class="rdot ok"></div><div class="rname">🇰🇪 af-south</div><div class="rbar"><div class="rbfill" style="width:68%"></div></div><div class="rttfb">121ms</div><div class="rcolo">NBO</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">live feed</div>
+        <div class="feed-item"><div class="feed-time">19:08</div><div class="feed-badge badge-ok">ok</div><div class="feed-msg">af-south · 68ms · SJC</div></div>
+        <div class="feed-item"><div class="feed-time">19:07</div><div class="feed-badge badge-ok">ok</div><div class="feed-msg">us-east · 52ms · IAD</div></div>
+        <div class="feed-item"><div class="feed-time">19:07</div><div class="feed-badge badge-surge">surge</div><div class="feed-msg">campaign trigger — all 6 regions</div></div>
+        <div class="feed-item"><div class="feed-time">19:02</div><div class="feed-badge badge-fail">fail</div><div class="feed-msg">me-south · 5032ms · DXB — timeout</div></div>
+        <div class="feed-item"><div class="feed-time">18:54</div><div class="feed-badge badge-ok">ok</div><div class="feed-msg">eu-west · 71ms · LHR</div></div>
+        <div class="feed-item"><div class="feed-time">18:51</div><div class="feed-badge badge-ok">ok</div><div class="feed-msg">ap-southeast · 89ms · SIN</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="padding:8px 0 4px;font-size:11px;color:var(--mu);font-family:var(--mono);text-align:center;letter-spacing:.05em">page 2 — control</div>
+
+<div class="frame">
+  <div class="titlebar">
+    <div class="dot" style="background:#ff5f57"></div>
+    <div class="dot" style="background:#ffbd2e"></div>
+    <div class="dot" style="background:#28c840"></div>
+    <div class="url">gamerslab.space/control</div>
+  </div>
+  <nav>
+    <div class="nav-logo">GL / MONITOR</div>
+    <div class="nav-tab">Monitor</div>
+    <div class="nav-tab active">Control</div>
+    <div class="nav-spacer"></div>
+    <div class="nav-target">uprisinglabs.itch.io/bug-seek-expedition-edition</div>
+  </nav>
+  <div class="page">
+    <div class="row2">
+      <div>
+        <div class="card" style="margin-bottom:8px">
+          <div class="card-title">manual triggers</div>
+          <div class="ctrl-row">
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:500;margin-bottom:2px">standard check</div>
+              <div style="font-size:10px;color:var(--mu)">one request per region</div>
+            </div>
+            <button class="btn">Run now</button>
+          </div>
+          <div style="border-top:0.5px solid var(--b1);margin:8px 0"></div>
+          <div class="ctrl-row">
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:500;margin-bottom:2px">surge test</div>
+              <div style="font-size:10px;color:var(--mu)">20 concurrent requests per region</div>
+            </div>
+            <button class="btn primary">Trigger surge</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:8px">
+          <div class="card-title">schedule</div>
+          <div class="schedule-grid">
+            <div class="sch-card">
+              <div style="display:flex;align-items:center">
+                <div style="flex:1"><div class="sch-title">Random interval</div><div class="sch-sub">~30% of 5-min ticks</div></div>
+                <div class="toggle on"><div class="toggle-knob"></div></div>
+              </div>
+            </div>
+            <div class="sch-card">
+              <div style="display:flex;align-items:center">
+                <div style="flex:1"><div class="sch-title">Campaign surge</div><div class="sch-sub">on webhook POST</div></div>
+                <div class="toggle on"><div class="toggle-knob"></div></div>
+              </div>
+            </div>
+            <div class="sch-card" style="grid-column:span 2">
+              <div class="sch-title" style="margin-bottom:6px">custom schedule</div>
+              <div style="display:flex;gap:6px">
+                <select style="font-size:11px;padding:5px 8px;border-radius:5px;border:0.5px solid var(--b2);background:var(--s1);color:var(--tx);flex:1">
+                  <option>Every 5 min</option>
+                  <option>Every 15 min</option>
+                  <option>Every hour</option>
+                </select>
+                <select style="font-size:11px;padding:5px 8px;border-radius:5px;border:0.5px solid var(--b2);background:var(--s1);color:var(--tx);flex:1">
+                  <option>All regions</option>
+                  <option>US + EU only</option>
+                </select>
+                <button class="btn" style="padding:5px 10px">Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" style="margin-bottom:8px">
+          <div class="card-title">target url</div>
+          <div class="target-card">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span class="tag">active</span>
+              <div style="font-size:11px;font-weight:500">Bug Seek: Expedition Edition</div>
+            </div>
+            <div class="target-url">https://uprisinglabs.itch.io/bug-seek-expedition-edition</div>
+          </div>
+          <div class="ctrl-row">
+            <input class="input" type="text" placeholder="https://new-target-url.com" style="flex:1">
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn" style="flex:1">Update target</button>
+            <button class="btn danger">Clear</button>
+          </div>
+          <div style="margin-top:10px">
+            <div class="ctrl-label" style="margin-bottom:6px">saved targets</div>
+            <div style="font-size:10px;color:var(--mu);font-family:var(--mono);padding:4px 0;border-bottom:0.5px solid var(--b1)">uprisinglabs.itch.io/bug-seek…</div>
+            <div style="font-size:10px;color:var(--mu);font-family:var(--mono);padding:4px 0">gamerslab.gg</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">notifications</div>
+          <div class="discord-card">
+            <div class="discord-icon">⚙</div>
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:500;margin-bottom:2px">Discord webhook</div>
+              <div style="font-size:10px;color:var(--mu)">Failure alerts + run logs → #monitoring</div>
+            </div>
+            <div class="toggle on"><div class="toggle-knob"></div></div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:6px;flex-direction:column">
+            <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mu)">
+              <input type="checkbox" checked style="accent-color:var(--acc)"> Alert on failure
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mu)">
+              <input type="checkbox" style="accent-color:var(--acc)"> Log every run
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mu)">
+              <input type="checkbox" checked style="accent-color:var(--acc)"> Surge report on complete
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

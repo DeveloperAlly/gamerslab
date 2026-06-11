@@ -1,0 +1,77 @@
+{
+  "name": "Workflow C — Failure alerting",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "id": "alert-schedule",
+      "name": "Alert schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT region, ttfb_ms, cf_colo, checked_at FROM monitor_results WHERE checked_at > now() - interval '30 minutes' AND status = 0 ORDER BY checked_at DESC",
+        "options": {}
+      },
+      "id": "check-failures",
+      "name": "Check for failures",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": { "id": "supabase-db", "name": "Supabase DB" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $items().length }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "if-failures",
+      "name": "Any failures?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#monitoring",
+        "text": "=🚨 Geo monitor failure\n\nRegion: {{ $json.region }}\nTTFB: {{ $json.ttfb_ms }}ms\nPoP: {{ $json.cf_colo }}\nTime: {{ $json.checked_at }}",
+        "otherOptions": {}
+      },
+      "id": "slack-alert",
+      "name": "Slack alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [900, 220],
+      "credentials": {
+        "slackApi": { "id": "slack-creds", "name": "Slack" }
+      }
+    }
+  ],
+  "connections": {
+    "Alert schedule": {
+      "main": [[{ "node": "Check for failures", "type": "main", "index": 0 }]]
+    },
+    "Check for failures": {
+      "main": [[{ "node": "Any failures?", "type": "main", "index": 0 }]]
+    },
+    "Any failures?": {
+      "main": [[{ "node": "Slack alert", "type": "main", "index": 0 }], []]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}
