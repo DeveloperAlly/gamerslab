@@ -103,8 +103,6 @@ export default function MonitorPage() {
   })
 
   const feed = rows.slice(0, 30)
-
-  // Unique IPs seen across all regions in this window
   const allIps = [...new Set(rows.filter(r => r.runner_ip).map(r => r.runner_ip))]
 
   if (error) return (
@@ -136,7 +134,7 @@ export default function MonitorPage() {
 
       {/* stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
-        <StatCard label="total runs" value={total.toLocaleString()} sub={`last ${hoursLabel}`} />
+        <StatCard label="monitor checks" value={total.toLocaleString()} sub={`last ${hoursLabel} · not site visits`} />
         <StatCard label="uptime" value={`${uptime}%`} sub={`${ok.toLocaleString()} ok · ${failed} failed`}
           color={uptime === 100 ? 'var(--green)' : uptime >= 95 ? 'var(--amber)' : 'var(--red)'} pulse={uptime === 100} />
         <StatCard label="avg ttfb" value={`${avgTtfb}ms`} sub={`p95 ${p95Ttfb}ms`}
@@ -148,7 +146,7 @@ export default function MonitorPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 500 }}>runs over time</div>
+            <div style={{ fontSize: 11, fontWeight: 500 }}>monitor checks over time</div>
             <div style={{ display: 'flex', gap: 12 }}>
               {[['#00c97a','ok'],['#f03e3e','failed']].map(([c,l]) => (
                 <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'var(--mu)' }}>
@@ -184,8 +182,6 @@ export default function MonitorPage() {
 
       {/* regions + feed */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-
-        {/* region table */}
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 10 }}>regions</div>
           <div style={{ display: 'grid', gridTemplateColumns: '16px 1fr 48px 52px 40px', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottom: '0.5px solid var(--b1)' }}>
@@ -198,7 +194,7 @@ export default function MonitorPage() {
               <StatusDot ok={ok} fail={fail} total={total} />
               <div>
                 <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--tx)' }}>{FLAGS[reg]} {REGION_NAMES[reg]}</div>
-                <div style={{ fontSize: 9, color: 'var(--mu)', fontFamily: 'var(--mono)', marginTop: 1 }}>{total} runs{ips ? ` · ${ips.split(',')[0].trim()}` : ''}</div>
+                <div style={{ fontSize: 9, color: 'var(--mu)', fontFamily: 'var(--mono)', marginTop: 1 }}>{total} checks{ips ? ` · ${ips.split(',')[0].trim()}` : ''}</div>
               </div>
               <div style={{ textAlign: 'right', fontSize: 12, fontFamily: 'var(--mono)', color: ut === 100 ? 'var(--green)' : ut >= 95 ? 'var(--amber)' : total === 0 ? 'var(--hi)' : 'var(--red)' }}>
                 {total ? `${ut}%` : '—'}
@@ -213,7 +209,6 @@ export default function MonitorPage() {
           ))}
         </div>
 
-        {/* live feed */}
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 500 }}>live feed</div>
@@ -247,7 +242,6 @@ export default function MonitorPage() {
         </div>
       </div>
 
-      {/* IPs panel */}
       {allIps.length > 0 && (
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ fontSize: 11, fontWeight: 500, marginBottom: 10 }}>runner IPs this window <span style={{ fontSize: 10, color: 'var(--mu)', fontWeight: 400 }}>— egress IPs used to reach itch.io</span></div>

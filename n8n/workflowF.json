@@ -1,6 +1,16 @@
 {
-  "name": "Workflow F — Scheduled one-off surge events",
+  "name": "Workflow F — Scheduled One-Off Surge Events",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow F — Scheduled One-Off Surge Events\n\n**Trigger:** POST /webhook/schedule-surge\n\n**Purpose:** Accepts a specific future date/time for a surge test (up to 15 days ahead) and saves it to the scheduled_surges table. Workflow G polls and fires it at the right time.\n\n**Flow:**\nWebhook (POST /schedule-surge) → Validate schedule (Code: checks ISO date, must be future, within 15 days) → Save surge event (Postgres insert, status=pending) → Confirm Discord (posts confirmation with label + time + delay) → Respond { scheduled: true, scheduledAt, label, delayMinutes }\n\n**Payload format:**\n{ \"scheduledAt\": \"2026-06-15T14:00:00+10:00\", \"label\": \"itch new release day\" }\n\n**Called by:** Dashboard Control page → Surge Event Scheduler → datetime picker + label → Schedule surge button → POST to this webhook.\n\n**Core use case:** Schedule a surge test to fire exactly when itch.io traffic is naturally high (new game release, Reddit post, influencer mention) to get real-world load testing data rather than synthetic off-peak tests.\n\n**Cancellation:** Dashboard cancel button PATCHes status=cancelled directly in Supabase. Workflow G ignores non-pending rows."
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 100],
+      "id": "sticky-f",
+      "name": "Sticky Note F"
+    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -8,84 +18,59 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "schedule-surge-webhook",
+      "id": "f967bdf3-a1b0-4b21-abed-360a888d011a",
       "name": "Schedule surge webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [240, 300],
+      "position": [704, 300],
       "webhookId": "schedule-surge"
     },
     {
       "parameters": {
-        "jsCode": "// Expects: { scheduledAt: '2026-06-15T14:00:00+10:00', label: 'itch launch event' }\nconst { scheduledAt, label } = $input.first().json.body;\nif (!scheduledAt) throw new Error('scheduledAt is required (ISO 8601)');\n\nconst fireAt = new Date(scheduledAt);\nconst now = new Date();\nconst delayMs = fireAt.getTime() - now.getTime();\n\nif (delayMs < 0) throw new Error('scheduledAt must be in the future');\nif (delayMs > 15 * 24 * 60 * 60 * 1000) throw new Error('scheduledAt must be within 15 days');\n\n// Store the scheduled event in Supabase via output — downstream Postgres node handles insert\nreturn [{ json: { \n  scheduledAt: fireAt.toISOString(),\n  label: label || 'Scheduled surge',\n  delayMs,\n  delayMinutes: Math.round(delayMs / 60000)\n} }];"
+        "jsCode": "const { scheduledAt, label } = $input.first().json.body;\nif (!scheduledAt) throw new Error('scheduledAt is required (ISO 8601)');\n\nconst fireAt = new Date(scheduledAt);\nconst now = new Date();\nconst delayMs = fireAt.getTime() - now.getTime();\n\nif (delayMs < 0) throw new Error('scheduledAt must be in the future');\nif (delayMs > 15 * 24 * 60 * 60 * 1000) throw new Error('scheduledAt must be within 15 days');\n\nreturn [{ json: {\n  scheduledAt: fireAt.toISOString(),\n  label: label || 'Scheduled surge',\n  delayMs,\n  delayMinutes: Math.round(delayMs / 60000)\n} }];"
       },
-      "id": "validate-schedule",
+      "id": "3a4f0881-4a29-4c00-a971-b459f7a1dd8c",
       "name": "Validate schedule",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [928, 300]
     },
     {
       "parameters": {
-        "operation": "insert",
         "schema": { "__rl": true, "value": "public", "mode": "list" },
-        "table": {
-          "__rl": true,
-          "value": "scheduled_surges",
-          "mode": "list",
-          "cachedResultName": "scheduled_surges"
-        },
+        "table": { "__rl": true, "value": "scheduled_surges", "mode": "list", "cachedResultName": "scheduled_surges" },
         "dataMode": "defineBelow",
         "valuesToSend": {
           "values": [
             { "column": "scheduled_at", "value": "={{ $json.scheduledAt }}" },
             { "column": "label", "value": "={{ $json.label }}" },
             { "column": "status", "value": "pending" },
-            {
-              "column": "created_at",
-              "value": "={{ new Date().toISOString() }}"
-            }
+            { "column": "created_at", "value": "={{ new Date().toISOString() }}" }
           ]
         },
         "options": {}
       },
-      "id": "save-surge-event",
+      "id": "7dd5f21e-a09a-472a-b977-6e3b659e1935",
       "name": "Save surge event",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [680, 300],
-      "credentials": {
-        "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
-      }
+      "position": [1152, 300],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": {
-          "__rl": true,
-          "value": "1066890817425387581",
-          "mode": "id"
-        },
-        "channelId": {
-          "__rl": true,
-          "value": "1514424075282550916",
-          "mode": "list",
-          "cachedResultName": "gamers-lab-monitor"
-        },
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
         "content": "=📅 **Surge event scheduled**\n\n**Label:** {{ $json.label }}\n**Fires at:** {{ $json.scheduledAt }}\n**In:** {{ $json.delayMinutes }} minutes",
         "options": {}
       },
-      "id": "confirm-discord",
+      "id": "5a945844-69b3-4d26-86af-207859b3de71",
       "name": "Confirm Discord",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [900, 300],
-      "credentials": {
-        "discordBotApi": {
-          "id": "TjYM6pZNQ2PGSVmG",
-          "name": "Discord Bot GamersLab"
-        }
-      }
+      "position": [1376, 300],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     },
     {
       "parameters": {
@@ -93,26 +78,18 @@
         "responseBody": "={{ JSON.stringify({ scheduled: true, scheduledAt: $json.scheduledAt, label: $json.label, delayMinutes: $json.delayMinutes }) }}",
         "options": {}
       },
-      "id": "respond-schedule",
-      "name": "Respond",
+      "id": "8160f1b8-5b29-4444-9dd9-6e1c314dcbfc",
+      "name": "Respond2",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1100, 300]
+      "position": [1568, 300]
     }
   ],
   "connections": {
-    "Schedule surge webhook": {
-      "main": [[{ "node": "Validate schedule", "type": "main", "index": 0 }]]
-    },
-    "Validate schedule": {
-      "main": [[{ "node": "Save surge event", "type": "main", "index": 0 }]]
-    },
-    "Save surge event": {
-      "main": [[{ "node": "Confirm Discord", "type": "main", "index": 0 }]]
-    },
-    "Confirm Discord": {
-      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
-    }
+    "Schedule surge webhook": { "main": [[{ "node": "Validate schedule", "type": "main", "index": 0 }]] },
+    "Validate schedule": { "main": [[{ "node": "Save surge event", "type": "main", "index": 0 }]] },
+    "Save surge event": { "main": [[{ "node": "Confirm Discord", "type": "main", "index": 0 }]] },
+    "Confirm Discord": { "main": [[{ "node": "Respond2", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" }
 }

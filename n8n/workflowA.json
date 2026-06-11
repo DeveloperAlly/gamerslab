@@ -1,70 +1,73 @@
 {
-  "name": "Workflow A — Scheduled monitor",
+  "name": "Workflow A — Scheduled Monitor",
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [{ "field": "minutes", "minutesInterval": 5 }]
-        }
+        "content": "## Workflow A — Scheduled Monitor\n\n**Trigger:** Schedule Trigger every 5 minutes\n\n**Purpose:** Randomly dispatches the Geo Monitor GitHub Action on approximately 30% of ticks — roughly once every 15 minutes on average. This creates natural variation and avoids predictable bot-like request patterns.\n\n**Flow:**\nSchedule Trigger (5min) → Random gate (30% pass) → Dispatch GitHub Action (standard mode) → [onError] Send Error Message (Discord)\n\n**On error:** GitHub dispatch failures are caught via onError=continueRegularOutput and posted to #gamers-lab-monitor immediately.\n\n**Dashboard control:** The toggle and interval selector on the Control page activates/deactivates this workflow and updates the Schedule Trigger interval via the n8n API.\n\n**Note:** GitHub Actions also runs its own cron (*/5 * * * *) as a primary fallback — this workflow adds randomness on top."
       },
-      "id": "schedule-trigger",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 100],
+      "id": "sticky-a",
+      "name": "Sticky Note A"
+    },
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] }
+      },
+      "id": "998256b2-6123-4f63-ba2e-148d311b0c32",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [240, 300]
+      "position": [736, 300]
     },
     {
       "parameters": {
         "jsCode": "// ~30% fire rate — skip most ticks to create random interval effect\nif (Math.random() > 0.3) {\n  return [];\n}\nreturn [{ json: { proceed: true } }];"
       },
-      "id": "random-gate",
+      "id": "090ccaa6-c312-4e8f-aac2-1def50ef0533",
       "name": "Random gate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [960, 300]
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.github.com/repos/{{ $env.GITHUB_REPO_OWNER }}/{{ $env.GITHUB_REPO_NAME }}/actions/workflows/monitor.yml/dispatches",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "ref",
-              "value": "main"
-            },
-            {
-              "name": "inputs",
-              "value": "={{ JSON.stringify({ mode: 'standard' }) }}"
-            }
-          ]
-        },
-        "options": {
-          "response": { "response": { "responseFormat": "text" } }
-        }
+        "resource": "workflow",
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
+        "ref": { "__rl": true, "value": "main", "mode": "list", "cachedResultName": "main" },
+        "inputs": "{ \"mode\": \"standard\" }"
       },
-      "id": "dispatch-standard",
-      "name": "Dispatch standard run",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [680, 300],
-      "credentials": {
-        "httpHeaderAuth": { "id": "github-pat", "name": "GitHub PAT" }
-      }
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [1168, 300],
+      "id": "e601587f-8033-4994-9b63-c79d32181995",
+      "name": "Dispatch a workflow event",
+      "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "list", "cachedResultName": "Wonderland" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+        "content": "=❌ **ERROR IN WORKFLOW A — CHECK N8N & GITHUB**\n\n{{ $json.error }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1376, 300],
+      "id": "9ceef9a8-c74f-4207-8e77-246939cf7e81",
+      "name": "Send Error Message",
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     }
   ],
   "connections": {
-    "Schedule Trigger": {
-      "main": [[{ "node": "Random gate", "type": "main", "index": 0 }]]
-    },
-    "Random gate": {
-      "main": [
-        [{ "node": "Dispatch standard run", "type": "main", "index": 0 }]
-      ]
-    }
+    "Schedule Trigger": { "main": [[{ "node": "Random gate", "type": "main", "index": 0 }]] },
+    "Random gate": { "main": [[{ "node": "Dispatch a workflow event", "type": "main", "index": 0 }]] },
+    "Dispatch a workflow event": { "main": [[{ "node": "Send Error Message", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" }
 }

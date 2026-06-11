@@ -1,6 +1,16 @@
 {
-  "name": "Workflow D — Target URL sync",
+  "name": "Workflow D — Target URL Sync",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow D — Target URL Sync\n\n**Trigger:** POST /webhook/update-target\n\n**Purpose:** Updates the monitored target URL when changed from the dashboard. Saves the new URL to the targets table in Supabase and notifies Discord.\n\n**Flow:**\nWebhook (POST /update-target) → Validate URL (Code node) → Save to Supabase (Postgres insert into targets, active=true) → Notify Discord → Respond { updated: true }\n\n**Supabase targets table:** Stores url, name, set_at, active. Dashboard reads the active=true row to display the current target in the monitor header.\n\n**Called by:** Dashboard Control page → Update target button → direct Supabase PATCH (deactivates old) + POST (inserts new active target). This webhook is an additional sync path for external callers.\n\n**Direct call:** POST https://n8n-j39n.sliplane.app/webhook/update-target\nBody: { \"url\": \"https://example.itch.io/game\", \"name\": \"My Game\" }"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 100],
+      "id": "sticky-d",
+      "name": "Sticky Note D"
+    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -8,65 +18,59 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "target-webhook",
+      "id": "a365a2b9-1117-40ba-9db8-a48a5a1819b2",
       "name": "Target webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [240, 300],
+      "position": [704, 300],
       "webhookId": "update-target"
     },
     {
       "parameters": {
         "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url } }];"
       },
-      "id": "validate-url",
+      "id": "165965a4-4279-4ea4-accb-0e650467735d",
       "name": "Validate URL",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [928, 300]
     },
     {
       "parameters": {
-        "operation": "upsert",
-        "schema": { "value": "public" },
-        "table": { "value": "targets" },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "url": "={{ $json.url }}",
-            "name": "={{ $json.name }}",
-            "set_at": "={{ new Date().toISOString() }}",
-            "active": true
-          }
+        "schema": { "__rl": true, "mode": "list", "value": "public" },
+        "table": { "__rl": true, "value": "targets", "mode": "list", "cachedResultName": "targets" },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            { "column": "url", "value": "={{ $json.url }}" },
+            { "column": "name", "value": "={{ $json.name }}" },
+            { "column": "set_at", "value": "={{ new Date().toISOString() }}" },
+            { "column": "active", "value": "true" }
+          ]
         },
         "options": {}
       },
-      "id": "save-to-supabase",
+      "id": "d43fed26-e228-4197-b12b-c0225b5ade60",
       "name": "Save to Supabase",
-      "type": "n8n-nodes-base.supabase",
-      "typeVersion": 1,
-      "position": [680, 300],
-      "credentials": {
-        "supabaseApi": { "id": "supabase-creds", "name": "Supabase" }
-      }
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1152, 300],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
       "parameters": {
-        "operation": "sendMessage",
-        "webhookUri": "={{$env.DISCORD_WEBHOOK_URL}}",
-        "text": "=🎯 **Monitor target updated**\n\n**URL:** {{ $json.url }}\n**Name:** {{ $json.name }}"
+        "resource": "message",
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+        "content": "=🎯 Monitor target updated\nURL: {{ $json.url }}\nName: {{ $json.name }}",
+        "options": {}
       },
-      "id": "notify-discord",
+      "id": "b924cc92-ef39-42ba-b7e2-5896824aec6e",
       "name": "Notify Discord",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [900, 300],
-      "credentials": {
-        "discordWebhookApi": {
-          "id": "discord-webhook",
-          "name": "Discord webhook"
-        }
-      }
+      "position": [1376, 300],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     },
     {
       "parameters": {
@@ -74,26 +78,18 @@
         "responseBody": "={ \"updated\": true }",
         "options": {}
       },
-      "id": "respond-target",
-      "name": "Respond",
+      "id": "f888258d-557d-4067-93f2-fb29f96faa52",
+      "name": "Respond1",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1100, 300]
+      "position": [1568, 300]
     }
   ],
   "connections": {
-    "Target webhook": {
-      "main": [[{ "node": "Validate URL", "type": "main", "index": 0 }]]
-    },
-    "Validate URL": {
-      "main": [[{ "node": "Save to Supabase", "type": "main", "index": 0 }]]
-    },
-    "Save to Supabase": {
-      "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
-    },
-    "Notify Discord": {
-      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
-    }
+    "Target webhook": { "main": [[{ "node": "Validate URL", "type": "main", "index": 0 }]] },
+    "Validate URL": { "main": [[{ "node": "Save to Supabase", "type": "main", "index": 0 }]] },
+    "Save to Supabase": { "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]] },
+    "Notify Discord": { "main": [[{ "node": "Respond1", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" }
 }

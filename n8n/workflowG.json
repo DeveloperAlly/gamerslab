@@ -1,15 +1,25 @@
 {
-  "name": "Workflow G — Execute scheduled surge events",
+  "name": "Workflow G — Execute Scheduled Surge Events",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow G — Execute Scheduled Surge Events\n\n**Trigger:** Schedule Trigger every 1 minute\n\n**Purpose:** Polls the scheduled_surges table every minute. When a pending event's scheduled_at time arrives, fires the GitHub Actions surge, marks the row as fired, and notifies Discord with the event label.\n\n**Flow:**\nPoll schedule (1min) → Check due events (Postgres: pending rows where scheduled_at <= now+1min AND >= now-5min) → Any due? (IF node) → [YES] Fire surge (GitHub Action, surge mode) → Mark fired (UPDATE status=fired, fired_at=now) → Notify Discord\n→ [NO] end\n\n**Supabase scheduled_surges table:**\nid · scheduled_at · label · status (pending/fired/cancelled) · fired_at · created_at\n\n**5-minute lookback window:** The AND >= now-5min clause catches events that were due but missed due to n8n downtime or execution delays.\n\n**Cancellation:** Dashboard cancel button PATCHes status=cancelled directly in Supabase. This workflow's WHERE status='pending' clause automatically ignores cancelled rows — no extra logic needed.\n\n**Multiple events:** If several surges are due at the same minute (unlikely but possible), the LIMIT 5 returns all of them and n8n iterates over each item, firing one GitHub Action per event."
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 100],
+      "id": "sticky-g",
+      "name": "Sticky Note G"
+    },
     {
       "parameters": {
         "rule": { "interval": [{ "field": "minutes", "minutesInterval": 1 }] }
       },
-      "id": "poll-schedule",
+      "id": "4d0f3a2a-7c36-4419-9a4e-c18977de9814",
       "name": "Poll schedule",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [240, 300]
+      "position": [704, 300]
     },
     {
       "parameters": {
@@ -17,65 +27,39 @@
         "query": "SELECT id, scheduled_at, label FROM scheduled_surges\nWHERE status = 'pending'\nAND scheduled_at <= now() + interval '1 minute'\nAND scheduled_at >= now() - interval '5 minutes'\nORDER BY scheduled_at ASC\nLIMIT 5",
         "options": {}
       },
-      "id": "check-due",
+      "id": "7c98b4b9-bdab-4c24-86e2-bfdf444a64b8",
       "name": "Check due events",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [460, 300],
-      "credentials": {
-        "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
-      }
+      "position": [928, 300],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
       "parameters": {
         "conditions": {
-          "number": [
-            {
-              "value1": "={{ $items().length }}",
-              "operation": "larger",
-              "value2": 0
-            }
-          ]
+          "number": [{ "value1": "={{ $items().length }}", "operation": "larger", "value2": 0 }]
         }
       },
-      "id": "any-due",
+      "id": "c235e3c8-4041-490a-bd75-20436704c451",
       "name": "Any due?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [680, 300]
+      "position": [1152, 300]
     },
     {
       "parameters": {
-        "resource": "workflowDispatch",
-        "owner": "={{ $env.GITHUB_REPO_OWNER }}",
-        "repository": "={{ $env.GITHUB_REPO_NAME }}",
-        "workflowId": "monitor.yml",
-        "ref": "main",
-        "additionalFields": {
-          "inputs": {
-            "inputsUi": {
-              "inputValues": [
-                { "name": "mode", "value": "surge" },
-                {
-                  "name": "regions",
-                  "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south"
-                }
-              ]
-            }
-          }
-        }
+        "resource": "workflow",
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
+        "inputs": "{ \"mode\": \"surge\" }"
       },
-      "id": "fire-surge",
+      "id": "3a8a3166-557a-4c16-bb1b-4f9c827f398d",
       "name": "Fire surge",
       "type": "n8n-nodes-base.github",
       "typeVersion": 1,
-      "position": [900, 220],
-      "credentials": {
-        "githubApi": {
-          "id": "QYTeIJkdqrhQltwn",
-          "name": "GitHub DeveloperAlly"
-        }
-      }
+      "position": [1360, 220],
+      "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } }
     },
     {
       "parameters": {
@@ -83,61 +67,35 @@
         "query": "UPDATE scheduled_surges SET status = 'fired', fired_at = now() WHERE id = {{ $json.id }}",
         "options": {}
       },
-      "id": "mark-fired",
+      "id": "47a64d46-8387-4303-9388-fd4516c78588",
       "name": "Mark fired",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1120, 220],
-      "credentials": {
-        "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
-      }
+      "position": [1584, 220],
+      "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": {
-          "__rl": true,
-          "value": "1066890817425387581",
-          "mode": "id"
-        },
-        "channelId": {
-          "__rl": true,
-          "value": "1514424075282550916",
-          "mode": "list",
-          "cachedResultName": "gamers-lab-monitor"
-        },
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
         "content": "=⚡ **Scheduled surge fired**\n\n**Event:** {{ $json.label }}\n**Scheduled for:** {{ $json.scheduled_at }}\n\nSurge test running across all 6 regions now.",
         "options": {}
       },
-      "id": "fire-discord",
-      "name": "Notify Discord",
+      "id": "44049edc-6f90-450f-8af0-d0ed75bad4a4",
+      "name": "Notify Discord2",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1340, 220],
-      "credentials": {
-        "discordBotApi": {
-          "id": "TjYM6pZNQ2PGSVmG",
-          "name": "Discord Bot GamersLab"
-        }
-      }
+      "position": [1808, 220],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     }
   ],
   "connections": {
-    "Poll schedule": {
-      "main": [[{ "node": "Check due events", "type": "main", "index": 0 }]]
-    },
-    "Check due events": {
-      "main": [[{ "node": "Any due?", "type": "main", "index": 0 }]]
-    },
-    "Any due?": {
-      "main": [[{ "node": "Fire surge", "type": "main", "index": 0 }], []]
-    },
-    "Fire surge": {
-      "main": [[{ "node": "Mark fired", "type": "main", "index": 0 }]]
-    },
-    "Mark fired": {
-      "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
-    }
+    "Poll schedule": { "main": [[{ "node": "Check due events", "type": "main", "index": 0 }]] },
+    "Check due events": { "main": [[{ "node": "Any due?", "type": "main", "index": 0 }]] },
+    "Any due?": { "main": [[{ "node": "Fire surge", "type": "main", "index": 0 }], []] },
+    "Fire surge": { "main": [[{ "node": "Mark fired", "type": "main", "index": 0 }]] },
+    "Mark fired": { "main": [[{ "node": "Notify Discord2", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" }
 }

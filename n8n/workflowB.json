@@ -1,6 +1,16 @@
 {
-  "name": "Workflow B — Campaign surge webhook",
+  "name": "Workflow B — Campaign Surge Webhook",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow B — Campaign Surge Webhook\n\n**Trigger:** POST /webhook/surge\n\n**Purpose:** Immediately dispatches a surge test across all 6 regions when called. Used by the dashboard 'Trigger surge' button and callable externally during live campaigns.\n\n**Flow:**\nWebhook (POST /surge) → Dispatch GitHub Action (surge mode, all 6 regions) → Respond { triggered: true }\n\n**What surge mode does:** Fires 20 concurrent requests per region (120 total across all regions) to simulate a campaign traffic spike — tests whether the target URL stays available under high concurrent load.\n\n**Direct call:** POST https://n8n-j39n.sliplane.app/webhook/surge\n\n**Dashboard path:** Control page → Trigger surge button → Cloudflare Worker /api/trigger → GitHub Actions workflow_dispatch"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 100],
+      "id": "sticky-b",
+      "name": "Sticky Note B"
+    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -8,41 +18,28 @@
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "surge-webhook",
+      "id": "edac9be2-7c30-44ff-bef5-d2ba9293aa4e",
       "name": "Surge webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [240, 300],
+      "position": [736, 300],
       "webhookId": "surge"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.github.com/repos/{{ $env.GITHUB_REPO_OWNER }}/{{ $env.GITHUB_REPO_NAME }}/actions/workflows/monitor.yml/dispatches",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            { "name": "ref", "value": "main" },
-            {
-              "name": "inputs",
-              "value": "={{ JSON.stringify({ mode: 'surge', regions: 'us-east,eu-west,ap-southeast,sa-east,me-south,af-south' }) }}"
-            }
-          ]
-        },
-        "options": {
-          "response": { "response": { "responseFormat": "text" } }
-        }
+        "resource": "workflow",
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
+        "ref": { "__rl": true, "value": "main", "mode": "list", "cachedResultName": "main" },
+        "inputs": "{ \"mode\": \"surge\" }"
       },
-      "id": "dispatch-surge",
-      "name": "Dispatch surge run",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4,
-      "position": [460, 300],
-      "credentials": {
-        "httpHeaderAuth": { "id": "github-pat", "name": "GitHub PAT" }
-      }
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [960, 300],
+      "id": "80805ead-1a55-4154-97e4-1f373f1334e9",
+      "name": "Dispatch a workflow event1",
+      "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } }
     },
     {
       "parameters": {
@@ -50,20 +47,16 @@
         "responseBody": "={ \"triggered\": true }",
         "options": {}
       },
-      "id": "respond",
+      "id": "8e42c619-46e6-40fa-909e-d5a9dcb95c37",
       "name": "Respond",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [680, 300]
+      "position": [1184, 300]
     }
   ],
   "connections": {
-    "Surge webhook": {
-      "main": [[{ "node": "Dispatch surge run", "type": "main", "index": 0 }]]
-    },
-    "Dispatch surge run": {
-      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
-    }
+    "Surge webhook": { "main": [[{ "node": "Dispatch a workflow event1", "type": "main", "index": 0 }]] },
+    "Dispatch a workflow event1": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" }
 }

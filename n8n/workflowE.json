@@ -1,101 +1,71 @@
 {
-  "name": "Workflow E — Scheduled surge testing",
+  "name": "Workflow E — Scheduled Surge Testing",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## Workflow E — Scheduled Surge Testing\n\n**Trigger:** Schedule Trigger every 2 hours\n\n**Purpose:** Automatically fires surge tests overnight and during off-hours. The 50% random gate creates unpredictable timing (~1 surge per 4 hours on average) that better simulates organic campaign spikes rather than predictable scheduled tests.\n\n**Flow:**\nSurge schedule (2h) → Random surge gate (50% pass) → Dispatch scheduled surge (GitHub Action, surge mode, all 6 regions) → Notify Discord\n\n**Discord notification:** Posts to #gamers-lab-monitor every time a surge fires so there's a record of when automated testing occurred.\n\n**Use case:** Leave running overnight before a planned campaign launch to build up baseline surge performance data. Data appears in dashboard Surge Runs stat and live feed with 'surge' badge.\n\n**To adjust frequency:** Edit the Schedule Trigger interval in n8n directly. Halving the interval doubles the average surge frequency."
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [400, 100],
+      "id": "sticky-e",
+      "name": "Sticky Note E"
+    },
     {
       "parameters": {
         "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] }
       },
-      "id": "surge-schedule",
+      "id": "617b9040-a0eb-4d8e-8a52-ff0ad822232d",
       "name": "Surge schedule",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [240, 300]
+      "position": [704, 300]
     },
     {
       "parameters": {
         "jsCode": "if (Math.random() > 0.5) { return []; }\nreturn [{ json: { proceed: true } }];"
       },
-      "id": "surge-gate",
+      "id": "5f54f73e-35d3-4e6a-9614-3ae879cfcfab",
       "name": "Random surge gate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [928, 300]
     },
     {
       "parameters": {
-        "resource": "workflowDispatch",
-        "owner": "={{ $env.GITHUB_REPO_OWNER }}",
-        "repository": "={{ $env.GITHUB_REPO_NAME }}",
-        "workflowId": "monitor.yml",
-        "ref": "main",
-        "additionalFields": {
-          "inputs": {
-            "inputsUi": {
-              "inputValues": [
-                { "name": "mode", "value": "surge" },
-                {
-                  "name": "regions",
-                  "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south"
-                }
-              ]
-            }
-          }
-        }
+        "resource": "workflow",
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
+        "inputs": "{ \"mode\": \"surge\" }"
       },
-      "id": "dispatch-scheduled-surge",
+      "id": "099c8d44-80b6-47e0-b086-d071df05f3f0",
       "name": "Dispatch scheduled surge",
       "type": "n8n-nodes-base.github",
       "typeVersion": 1,
-      "position": [680, 300],
-      "credentials": {
-        "githubApi": {
-          "id": "QYTeIJkdqrhQltwn",
-          "name": "GitHub DeveloperAlly"
-        }
-      }
+      "position": [1152, 300],
+      "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } }
     },
     {
       "parameters": {
         "resource": "message",
-        "guildId": {
-          "__rl": true,
-          "value": "1066890817425387581",
-          "mode": "id"
-        },
-        "channelId": {
-          "__rl": true,
-          "value": "1514424075282550916",
-          "mode": "list",
-          "cachedResultName": "gamers-lab-monitor"
-        },
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+        "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
         "content": "⚡ **Scheduled surge test fired**\n\nAutomated campaign spike simulation starting across all 6 regions.",
         "options": {}
       },
-      "id": "surge-notify",
-      "name": "Notify Discord",
+      "id": "91bcb3c9-cc42-4fa7-8439-bce53f6abca4",
+      "name": "Notify Discord1",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [900, 300],
-      "credentials": {
-        "discordBotApi": {
-          "id": "TjYM6pZNQ2PGSVmG",
-          "name": "Discord Bot GamersLab"
-        }
-      }
+      "position": [1376, 300],
+      "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     }
   ],
   "connections": {
-    "Surge schedule": {
-      "main": [[{ "node": "Random surge gate", "type": "main", "index": 0 }]]
-    },
-    "Random surge gate": {
-      "main": [
-        [{ "node": "Dispatch scheduled surge", "type": "main", "index": 0 }]
-      ]
-    },
-    "Dispatch scheduled surge": {
-      "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
-    }
+    "Surge schedule": { "main": [[{ "node": "Random surge gate", "type": "main", "index": 0 }]] },
+    "Random surge gate": { "main": [[{ "node": "Dispatch scheduled surge", "type": "main", "index": 0 }]] },
+    "Dispatch scheduled surge": { "main": [[{ "node": "Notify Discord1", "type": "main", "index": 0 }]] }
   },
   "settings": { "executionOrder": "v1" }
 }
