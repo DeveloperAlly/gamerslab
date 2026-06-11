@@ -18,6 +18,18 @@ function err(msg, status = 400) {
   return json({ error: msg }, status);
 }
 
+// Strip fields that n8n's PUT /workflows/:id rejects as additional properties.
+// The GET response includes read-only server fields that must not be sent back on PUT.
+function sanitiseForPut(wf) {
+  const {
+    id, createdAt, updatedAt, versionId, activeVersionId,
+    active, isArchived, triggerCount, parentFolderId,
+    activeVersion, scopes, canExecute, tags, meta,
+    ...rest
+  } = wf;
+  return rest;
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
@@ -85,6 +97,7 @@ async function handleSchedule(request, env) {
   if (!getRes.ok) return err(`Failed to fetch workflow: ${await getRes.text()}`, getRes.status);
 
   const workflow = await getRes.json();
+
   workflow.nodes = workflow.nodes.map(node => {
     if (node.type === "n8n-nodes-base.scheduleTrigger" && node.name === "Schedule Trigger") {
       node.parameters.rule.interval = [{ field: "minutes", minutesInterval: intervalMinutes }];
@@ -95,7 +108,7 @@ async function handleSchedule(request, env) {
   const putRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
     method: "PUT",
     headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify(workflow),
+    body: JSON.stringify(sanitiseForPut(workflow)),
   });
 
   if (!putRes.ok) return err(`Failed to update workflow: ${await putRes.text()}`, putRes.status);
