@@ -41,6 +41,18 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
+function HealthCard({ icon, label, sub, borderColor }) {
+  return (
+    <div style={{ background: 'var(--s1)', border: `0.5px solid ${borderColor || 'var(--b2)'}`, borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ fontSize: 16, flexShrink: 0 }}>{icon}</div>
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 500 }}>{label}</div>
+        <div style={{ fontSize: 10, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>{sub}</div>
+      </div>
+    </div>
+  )
+}
+
 export default function MonitorPage() {
   const [hours, setHours] = useState(24)
   const [rows, setRows] = useState([])
@@ -74,11 +86,13 @@ export default function MonitorPage() {
   const hoursLabel = hours < 24 ? `${hours}h` : hours === 168 ? '7d' : hours === 720 ? '30d' : '24h'
 
   // Playwright health stats
-  const playwrightRows = rows.filter(r => r.page_title !== undefined && r.page_title !== null)
-  const iframeFailures = playwrightRows.filter(r => r.game_iframe_loaded === false && r.status === 1).length
-  const jsErrorRows = playwrightRows.filter(r => {
-    try { return JSON.parse(r.js_errors || '[]').length > 0 } catch { return false }
-  }).length
+  const pwRows = rows.filter(r => r.page_title !== undefined && r.page_title !== null)
+  const iframeFailures = pwRows.filter(r => r.game_iframe_loaded === false && r.status === 1).length
+  const jsErrorRows = pwRows.filter(r => { try { return JSON.parse(r.js_errors || '[]').length > 0 } catch { return false } }).length
+  // Click-check stats
+  const clickChecks = rows.filter(r => r.click_check_done === true)
+  const loginPromptOk = clickChecks.filter(r => r.login_prompt_shown === true).length
+  const loginPromptFailed = clickChecks.filter(r => r.login_prompt_shown === false).length
 
   const bucketMs = hours <= 1 ? 5*60*1000 : hours <= 6 ? 15*60*1000 : hours <= 24 ? 3600*1000 : 6*3600*1000
   const buckets = {}
@@ -150,34 +164,36 @@ export default function MonitorPage() {
         <StatCard label="surge runs" value={surgeRuns} sub="campaign tests" />
       </div>
 
-      {/* Playwright health banner — only shown when playwright data exists */}
-      {playwrightRows.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
-          <div style={{ background: 'var(--s1)', border: `0.5px solid ${iframeFailures > 0 ? 'var(--amber)' : 'var(--b2)'}`, borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 16 }}>{iframeFailures > 0 ? '⚠️' : '✅'}</div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 500 }}>Game iframe</div>
-              <div style={{ fontSize: 10, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>
-                {iframeFailures > 0 ? `${iframeFailures} check${iframeFailures > 1 ? 's' : ''} missing iframe` : 'loaded in all checks'}
-              </div>
-            </div>
-          </div>
-          <div style={{ background: 'var(--s1)', border: `0.5px solid ${jsErrorRows > 0 ? 'var(--red)' : 'var(--b2)'}`, borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 16 }}>{jsErrorRows > 0 ? '🚨' : '✅'}</div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 500 }}>JS errors</div>
-              <div style={{ fontSize: 10, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>
-                {jsErrorRows > 0 ? `${jsErrorRows} check${jsErrorRows > 1 ? 's' : ''} had console errors` : 'no console errors detected'}
-              </div>
-            </div>
-          </div>
-          <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 16 }}>🖥️</div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 500 }}>Playwright checks</div>
-              <div style={{ fontSize: 10, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>{playwrightRows.length} full browser visits</div>
-            </div>
-          </div>
+      {/* Playwright health banner */}
+      {pwRows.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
+          <HealthCard
+            icon={iframeFailures > 0 ? '⚠️' : '✅'}
+            label="Game iframe"
+            sub={iframeFailures > 0 ? `${iframeFailures} check${iframeFailures > 1 ? 's' : ''} missing iframe` : 'loaded in all checks'}
+            borderColor={iframeFailures > 0 ? 'var(--amber)' : undefined}
+          />
+          <HealthCard
+            icon={jsErrorRows > 0 ? '🚨' : '✅'}
+            label="JS errors"
+            sub={jsErrorRows > 0 ? `${jsErrorRows} check${jsErrorRows > 1 ? 's' : ''} had console errors` : 'none detected'}
+            borderColor={jsErrorRows > 0 ? 'var(--red)' : undefined}
+          />
+          <HealthCard
+            icon={loginPromptFailed > 0 ? '🚨' : clickChecks.length > 0 ? '✅' : '🖱️'}
+            label="Run game check"
+            sub={
+              clickChecks.length === 0 ? 'no click-checks in window' :
+              loginPromptFailed > 0 ? `${loginPromptFailed} check${loginPromptFailed > 1 ? 's' : ''} — login prompt missing` :
+              `${loginPromptOk} check${loginPromptOk > 1 ? 's' : ''} — login prompt confirmed`
+            }
+            borderColor={loginPromptFailed > 0 ? 'var(--red)' : undefined}
+          />
+          <HealthCard
+            icon="🖥️"
+            label="Browser visits"
+            sub={`${pwRows.length} full Playwright checks`}
+          />
         </div>
       )}
 
@@ -248,7 +264,6 @@ export default function MonitorPage() {
           ))}
         </div>
 
-        {/* live feed — now shows Playwright details on expand */}
         <div style={{ background: 'var(--s1)', border: '0.5px solid var(--b2)', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 500 }}>live feed</div>
@@ -263,12 +278,12 @@ export default function MonitorPage() {
               const jsErrors = (() => { try { return JSON.parse(r.js_errors || '[]') } catch { return [] } })()
               const hasJsErrors = jsErrors.length > 0
               const iframeOk = r.game_iframe_loaded
+              const didClickCheck = r.click_check_done === true
+              const loginOk = r.login_prompt_shown
               const isExpanded = expandedRow === i
-
               const badgeText = isSurge ? 'surge' : isOk ? 'ok' : 'fail'
               const badgeColor = isSurge ? 'var(--amber)' : isOk ? 'var(--green)' : 'var(--red)'
               const badgeBg = isSurge ? 'var(--amber-dim)' : isOk ? 'var(--green-dim)' : 'var(--red-dim)'
-
               return (
                 <div key={i} style={{ borderBottom: '0.5px solid var(--b1)' }}>
                   <div
@@ -285,28 +300,28 @@ export default function MonitorPage() {
                       {r.cf_colo && <span style={{ color: 'var(--mu)' }}> · {r.cf_colo}</span>}
                       {!isOk && r.render_error && <span style={{ color: 'var(--red)' }}> · {r.render_error}</span>}
                       {!isOk && !r.render_error && <span style={{ color: 'var(--red)' }}> · failed</span>}
-                      {/* Playwright inline indicators */}
                       {hasPlaywright && hasJsErrors && <span style={{ color: 'var(--red)', fontSize: 9 }}> · {jsErrors.length} JS err</span>}
                       {hasPlaywright && !iframeOk && isOk && <span style={{ color: 'var(--amber)', fontSize: 9 }}> · no iframe</span>}
+                      {didClickCheck && <span style={{ color: loginOk ? 'var(--green)' : 'var(--red)', fontSize: 9 }}> · {loginOk ? '🖱 login ✓' : '🖱 login ✗'}</span>}
                     </div>
                     {hasPlaywright && <div style={{ fontSize: 9, color: 'var(--hi)', flexShrink: 0 }}>{isExpanded ? '▲' : '▼'}</div>}
                   </div>
-
-                  {/* Expanded Playwright detail */}
                   {isExpanded && hasPlaywright && (
                     <div style={{ padding: '6px 8px 8px 45px', background: 'var(--s2)', borderRadius: 5, marginBottom: 4, fontSize: 10, fontFamily: 'var(--mono)' }}>
                       {r.page_title && <div style={{ color: 'var(--mu)', marginBottom: 3 }}>title: <span style={{ color: 'var(--tx)' }}>{r.page_title}</span></div>}
-                      <div style={{ color: 'var(--mu)', marginBottom: 3 }}>
-                        iframe: <span style={{ color: iframeOk ? 'var(--green)' : 'var(--amber)' }}>{iframeOk ? '✓ loaded' : '✗ not found'}</span>
-                      </div>
-                      <div style={{ color: 'var(--mu)', marginBottom: 3 }}>
-                        js errors: <span style={{ color: hasJsErrors ? 'var(--red)' : 'var(--green)' }}>{hasJsErrors ? jsErrors.length : '0'}</span>
-                      </div>
+                      <div style={{ color: 'var(--mu)', marginBottom: 3 }}>iframe: <span style={{ color: iframeOk ? 'var(--green)' : 'var(--amber)' }}>{iframeOk ? '✓ loaded' : '✗ not found'}</span></div>
+                      <div style={{ color: 'var(--mu)', marginBottom: 3 }}>js errors: <span style={{ color: hasJsErrors ? 'var(--red)' : 'var(--green)' }}>{hasJsErrors ? jsErrors.length : '0'}</span></div>
                       {hasJsErrors && jsErrors.slice(0, 3).map((e, j) => (
-                        <div key={j} style={{ color: 'var(--red)', fontSize: 9, marginLeft: 8, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {e}
-                        </div>
+                        <div key={j} style={{ color: 'var(--red)', fontSize: 9, marginLeft: 8, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e}</div>
                       ))}
+                      {didClickCheck && (
+                        <div style={{ color: 'var(--mu)', marginBottom: 3 }}>
+                          run game click: <span style={{ color: loginOk ? 'var(--green)' : loginOk === false ? 'var(--red)' : 'var(--hi)' }}>
+                            {loginOk === true ? '✓ login prompt appeared' : loginOk === false ? '✗ no login prompt detected' : 'not checked'}
+                          </span>
+                        </div>
+                      )}
+                      {r.referrer_used && <div style={{ color: 'var(--mu)', marginBottom: 3 }}>referrer: <span style={{ color: 'var(--tx)' }}>{r.referrer_used}</span></div>}
                       {r.page_blocked && <div style={{ color: 'var(--red)' }}>⚠ page blocked by Cloudflare</div>}
                       {r.render_error && <div style={{ color: 'var(--red)', marginTop: 2 }}>error: {r.render_error}</div>}
                     </div>
