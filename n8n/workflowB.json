@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Workflow B — Campaign Surge Webhook\n\n**Trigger:** POST /webhook/surge\n\n**Purpose:** Immediately dispatches a surge test across all 6 regions when called. Used by the dashboard 'Trigger surge' button and callable externally during live campaigns.\n\n**Flow:**\nWebhook (POST /surge) → Dispatch GitHub Action (surge mode, all 6 regions) → Respond { triggered: true }\n\n**What surge mode does:** Fires 20 concurrent requests per region (120 total across all regions) to simulate a campaign traffic spike — tests whether the target URL stays available under high concurrent load.\n\n**Direct call:** POST https://n8n-j39n.sliplane.app/webhook/surge\n\n**Dashboard path:** Control page → Trigger surge button → Cloudflare Worker /api/trigger → GitHub Actions workflow_dispatch"
+        "content": "## Workflow B — Campaign Surge Webhook\n\n**Trigger:** POST /webhook/surge\n\n**Purpose:** Immediately dispatches a surge test when called. Used by the dashboard 'Trigger surge' button and callable externally during live campaigns.\n\n**Flow:**\nWebhook (POST /surge) → Dispatch GitHub Action (surge mode, all 6 regions) → Respond { triggered: true }\n\n**What surge mode does:** Each of the 6 GitHub Actions runners fires 20 concurrent requests to the target URL (120 total). Tests whether the page stays available under high concurrent load — simulates a campaign traffic spike.\n\n**Direct webhook URL:** POST https://n8n-j39n.sliplane.app/webhook/surge\n\n**Called by:** Dashboard Control page → Cloudflare Worker /api/trigger → GitHub Actions workflow_dispatch"
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [400, 100],
+      "position": [-200, 100],
       "id": "sticky-b",
-      "name": "Sticky Note B"
+      "name": "Sticky Note — Workflow B"
     },
     {
       "parameters": {
@@ -22,21 +22,21 @@
       "name": "Surge webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [736, 300],
+      "position": [240, 300],
       "webhookId": "surge"
     },
     {
       "parameters": {
         "resource": "workflow",
-        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
-        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab" },
         "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
         "ref": { "__rl": true, "value": "main", "mode": "list", "cachedResultName": "main" },
         "inputs": "{ \"mode\": \"surge\" }"
       },
       "type": "n8n-nodes-base.github",
       "typeVersion": 1.1,
-      "position": [960, 300],
+      "position": [460, 300],
       "id": "80805ead-1a55-4154-97e4-1f373f1334e9",
       "name": "Dispatch a workflow event1",
       "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } }
@@ -51,7 +51,7 @@
       "name": "Respond",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1184, 300]
+      "position": [680, 300]
     }
   ],
   "connections": {

@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Workflow F — Scheduled One-Off Surge Events\n\n**Trigger:** POST /webhook/schedule-surge\n\n**Purpose:** Accepts a specific future date/time for a surge test (up to 15 days ahead) and saves it to the scheduled_surges table. Workflow G polls and fires it at the right time.\n\n**Flow:**\nWebhook (POST /schedule-surge) → Validate schedule (Code: checks ISO date, must be future, within 15 days) → Save surge event (Postgres insert, status=pending) → Confirm Discord (posts confirmation with label + time + delay) → Respond { scheduled: true, scheduledAt, label, delayMinutes }\n\n**Payload format:**\n{ \"scheduledAt\": \"2026-06-15T14:00:00+10:00\", \"label\": \"itch new release day\" }\n\n**Called by:** Dashboard Control page → Surge Event Scheduler → datetime picker + label → Schedule surge button → POST to this webhook.\n\n**Core use case:** Schedule a surge test to fire exactly when itch.io traffic is naturally high (new game release, Reddit post, influencer mention) to get real-world load testing data rather than synthetic off-peak tests.\n\n**Cancellation:** Dashboard cancel button PATCHes status=cancelled directly in Supabase. Workflow G ignores non-pending rows."
+        "content": "## Workflow F — Scheduled One-Off Surge Events\n\n**Trigger:** POST /webhook/schedule-surge\n\n**Purpose:** Accepts a specific future date/time for a surge test (up to 15 days ahead), validates it, saves to the scheduled_surges table in Supabase, and confirms in Discord. Workflow G polls every minute and fires when due.\n\n**Flow:**\nWebhook (POST /schedule-surge) → Validate schedule (Code — checks ISO date, in future, within 15 days) → Save surge event (Postgres insert, status=pending) → Confirm Discord → Respond { scheduled: true, scheduledAt, label, delayMinutes }\n\n**Payload format:**\n```json\n{\n  \"scheduledAt\": \"2026-06-15T14:00:00+10:00\",\n  \"label\": \"itch new release day\"\n}\n```\n\n**Called by:** Dashboard Control page → Surge Event Scheduler card → datetime picker + label → Schedule surge button → api.js scheduleSurge() → this webhook.\n\n**Use case:** Schedule a surge test to fire exactly when itch.io traffic is naturally high (new game release, Reddit post, influencer mention) to get real-world load test data at peak organic traffic."
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [400, 100],
+      "position": [-200, 100],
       "id": "sticky-f",
-      "name": "Sticky Note F"
+      "name": "Sticky Note — Workflow F"
     },
     {
       "parameters": {
@@ -22,7 +22,7 @@
       "name": "Schedule surge webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [704, 300],
+      "position": [240, 300],
       "webhookId": "schedule-surge"
     },
     {
@@ -33,7 +33,7 @@
       "name": "Validate schedule",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [928, 300]
+      "position": [460, 300]
     },
     {
       "parameters": {
@@ -54,7 +54,7 @@
       "name": "Save surge event",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1152, 300],
+      "position": [680, 300],
       "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
@@ -69,7 +69,7 @@
       "name": "Confirm Discord",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1376, 300],
+      "position": [900, 300],
       "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     },
     {
@@ -82,7 +82,7 @@
       "name": "Respond2",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1568, 300]
+      "position": [1100, 300]
     }
   ],
   "connections": {

@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Workflow D — Target URL Sync\n\n**Trigger:** POST /webhook/update-target\n\n**Purpose:** Updates the monitored target URL when changed from the dashboard. Saves the new URL to the targets table in Supabase and notifies Discord.\n\n**Flow:**\nWebhook (POST /update-target) → Validate URL (Code node) → Save to Supabase (Postgres insert into targets, active=true) → Notify Discord → Respond { updated: true }\n\n**Supabase targets table:** Stores url, name, set_at, active. Dashboard reads the active=true row to display the current target in the monitor header.\n\n**Called by:** Dashboard Control page → Update target button → direct Supabase PATCH (deactivates old) + POST (inserts new active target). This webhook is an additional sync path for external callers.\n\n**Direct call:** POST https://n8n-j39n.sliplane.app/webhook/update-target\nBody: { \"url\": \"https://example.itch.io/game\", \"name\": \"My Game\" }"
+        "content": "## Workflow D — Target URL Sync\n\n**Trigger:** POST /webhook/update-target\n\n**Purpose:** Updates the monitored target URL. Saves to the targets table in Supabase and notifies Discord.\n\n**Flow:**\nWebhook (POST /update-target) → Validate URL (Code — checks url present, sets name) → Save to Supabase (Postgres insert into targets, active=true) → Notify Discord → Respond { updated: true }\n\n**Supabase targets table:** Stores url, name, set_at, active. Dashboard reads active=true row to show current target.\n\n**Called by:** Dashboard Control page → api.js setTarget() — first PATCHes active=false on old targets, then POSTs new target directly to Supabase. This webhook is an additional sync path for external callers.\n\n**Direct webhook URL:** POST https://n8n-j39n.sliplane.app/webhook/update-target\n**Body:** { \"url\": \"https://...\", \"name\": \"Display Name\" }"
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [400, 100],
+      "position": [-200, 100],
       "id": "sticky-d",
-      "name": "Sticky Note D"
+      "name": "Sticky Note — Workflow D"
     },
     {
       "parameters": {
@@ -22,7 +22,7 @@
       "name": "Target webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [704, 300],
+      "position": [240, 300],
       "webhookId": "update-target"
     },
     {
@@ -33,7 +33,7 @@
       "name": "Validate URL",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [928, 300]
+      "position": [460, 300]
     },
     {
       "parameters": {
@@ -54,7 +54,7 @@
       "name": "Save to Supabase",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1152, 300],
+      "position": [680, 300],
       "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
@@ -69,7 +69,7 @@
       "name": "Notify Discord",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1376, 300],
+      "position": [900, 300],
       "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     },
     {
@@ -82,7 +82,7 @@
       "name": "Respond1",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [1568, 300]
+      "position": [1100, 300]
     }
   ],
   "connections": {

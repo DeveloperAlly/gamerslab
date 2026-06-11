@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Workflow C — Stats + Alerting (Discord)\n\n**Trigger:** Schedule Trigger every 30 minutes\n\n**Purpose:** Posts a full stats digest to #gamers-lab-monitor every 30 minutes regardless of pass/fail status. Alerts on failures and dead pipeline.\n\n**Flow:**\nAlert schedule (30min) → Check status (Postgres aggregation) → Evaluate status (Code node builds message) → Send report (Discord Bot)\n\n**Discord message format:**\n✅ GamersLab Monitor — 30 min report\n62/66 checks passed · avg 147ms · last run 12:54 pm\n\n🟢 us-east — 100% · 152ms\n🟢 eu-west — 100% · 144ms\n🟡 sa-east — 73% · 119ms\n\n**Alert thresholds:**\n- 💀 Dead: total=0 (no results in 30min) → pipeline down alert + GitHub Actions link\n- 🚨 Critical: 3+ failures\n- ⚠️ Warning: 1–2 failures\n- ✅ Healthy: all checks passed"
+        "content": "## Workflow C — Stats + Alerting (Discord)\n\n**Trigger:** Schedule Trigger every 30 minutes\n\n**Purpose:** Posts a full stats digest to #gamers-lab-monitor every 30 minutes regardless of pass/fail. Also dead-pipeline detection.\n\n**Flow:**\nAlert schedule (30min) → Check status (Postgres) → Build report (Code node) → Send report (Discord Bot)\n\n**Discord message format:**\n```\n✅ GamersLab Monitor — 30 min report\n62/66 checks passed · avg 147ms · last run 12:54 pm\n\n🟢 us-east — 100% · 152ms\n🟢 eu-west — 100% · 144ms\n🟢 ap-southeast — 100% · 168ms\n🟡 sa-east — 73% · 119ms\n🟡 me-south — 91% · 125ms\n🟢 af-south — 100% · 175ms\n```\n\n**Alert levels:**\n- 💀 Pipeline dead: total=0 in last 30min → posts dead alert + GitHub Actions link\n- 🚨 Critical: 3+ failures\n- ⚠️ Warning: 1–2 failures\n- ✅ Healthy: all passed — still posts the stats digest"
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [400, 100],
+      "position": [-200, 100],
       "id": "sticky-c",
-      "name": "Sticky Note C"
+      "name": "Sticky Note — Workflow C"
     },
     {
       "parameters": {
@@ -19,7 +19,7 @@
       "name": "Alert schedule1",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [720, 300]
+      "position": [240, 300]
     },
     {
       "parameters": {
@@ -31,18 +31,18 @@
       "name": "Check status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [944, 300],
+      "position": [460, 300],
       "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
       "parameters": {
-        "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst ok = parseInt(row.ok_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst avgTtfb = parseInt(row.avg_ttfb) || 0;\nconst lastSeen = row.last_seen ? new Date(row.last_seen).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Melbourne' }) : 'n/a';\nconst surgeCount = parseInt(row.surge_count) || 0;\n\nif (total === 0) {\n  return [{ json: { message: '💀 **Monitor pipeline is down**\\n\\nNo results in the last 30 minutes.\\nhttps://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\nconst recent = row.recent || [];\nconst byRegion = {};\nfor (const r of recent) {\n  if (!byRegion[r.region]) byRegion[r.region] = { ok: 0, fail: 0, ttfbs: [] };\n  r.ok ? byRegion[r.region].ok++ : byRegion[r.region].fail++;\n  if (r.ttfb) byRegion[r.region].ttfbs.push(r.ttfb);\n}\n\nconst regionLines = Object.entries(byRegion).map(([reg, d]) => {\n  const tot = d.ok + d.fail;\n  const pct = tot ? Math.round(d.ok / tot * 100) : 0;\n  const avg = d.ttfbs.length ? Math.round(d.ttfbs.reduce((a,b)=>a+b,0)/d.ttfbs.length) : 0;\n  const icon = pct === 100 ? '🟢' : pct >= 80 ? '🟡' : '🔴';\n  return `${icon} ${reg} — ${pct}% · ${avg}ms`;\n}).join('\\n');\n\nconst statusIcon = failures === 0 ? '✅' : failures < 3 ? '⚠️' : '🚨';\nconst failLine = failures > 0 ? `\\n⚠️ **${failures} failures detected**` : '';\n\nreturn [{ json: { message: `${statusIcon} **GamersLab Monitor — 30 min report**\\n**${ok}/${total} checks passed** · avg ${avgTtfb}ms · last run ${lastSeen}${surgeCount > 0 ? ` · ${surgeCount} surge runs` : ''}${failLine}\\n\\n${regionLines}` } }];"
+        "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst ok = parseInt(row.ok_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst avgTtfb = parseInt(row.avg_ttfb) || 0;\nconst lastSeen = row.last_seen ? new Date(row.last_seen).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Melbourne' }) : 'n/a';\nconst surgeCount = parseInt(row.surge_count) || 0;\n\nif (total === 0) {\n  return [{ json: { message: '\u{1F480} **Monitor pipeline is down**\\n\\nNo results in the last 30 minutes.\\nhttps://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\nconst recent = row.recent || [];\nconst byRegion = {};\nfor (const r of recent) {\n  if (!byRegion[r.region]) byRegion[r.region] = { ok: 0, fail: 0, ttfbs: [] };\n  r.ok ? byRegion[r.region].ok++ : byRegion[r.region].fail++;\n  if (r.ttfb) byRegion[r.region].ttfbs.push(r.ttfb);\n}\n\nconst regionLines = Object.entries(byRegion).map(([reg, d]) => {\n  const tot = d.ok + d.fail;\n  const pct = tot ? Math.round(d.ok / tot * 100) : 0;\n  const avg = d.ttfbs.length ? Math.round(d.ttfbs.reduce((a,b)=>a+b,0)/d.ttfbs.length) : 0;\n  const icon = pct === 100 ? '\u{1F7E2}' : pct >= 80 ? '\u{1F7E1}' : '\u{1F534}';\n  return `${icon} ${reg} — ${pct}% · ${avg}ms`;\n}).join('\\n');\n\nconst statusIcon = failures === 0 ? '\u2705' : failures < 3 ? '\u26A0\uFE0F' : '\u{1F6A8}';\nconst failLine = failures > 0 ? `\\n\u26A0\uFE0F **${failures} failures detected**` : '';\n\nreturn [{ json: { message: `${statusIcon} **GamersLab Monitor — 30 min report**\\n**${ok}/${total} checks passed** · avg ${avgTtfb}ms · last run ${lastSeen}${surgeCount > 0 ? ` · ${surgeCount} surge runs` : ''}${failLine}\\n\\n${regionLines}` } }];"
       },
       "id": "48a19415-fce0-4708-affe-65c9bd7ef048",
       "name": "Evaluate status",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1168, 300]
+      "position": [680, 300]
     },
     {
       "parameters": {
@@ -56,7 +56,7 @@
       "name": "Send alert",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1392, 300],
+      "position": [900, 300],
       "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     }
   ],

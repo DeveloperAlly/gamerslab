@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Workflow G — Execute Scheduled Surge Events\n\n**Trigger:** Schedule Trigger every 1 minute\n\n**Purpose:** Polls the scheduled_surges table every minute. When a pending event's scheduled_at time arrives, fires the GitHub Actions surge, marks the row as fired, and notifies Discord with the event label.\n\n**Flow:**\nPoll schedule (1min) → Check due events (Postgres: pending rows where scheduled_at <= now+1min AND >= now-5min) → Any due? (IF node) → [YES] Fire surge (GitHub Action, surge mode) → Mark fired (UPDATE status=fired, fired_at=now) → Notify Discord\n→ [NO] end\n\n**Supabase scheduled_surges table:**\nid · scheduled_at · label · status (pending/fired/cancelled) · fired_at · created_at\n\n**5-minute lookback window:** The AND >= now-5min clause catches events that were due but missed due to n8n downtime or execution delays.\n\n**Cancellation:** Dashboard cancel button PATCHes status=cancelled directly in Supabase. This workflow's WHERE status='pending' clause automatically ignores cancelled rows — no extra logic needed.\n\n**Multiple events:** If several surges are due at the same minute (unlikely but possible), the LIMIT 5 returns all of them and n8n iterates over each item, firing one GitHub Action per event."
+        "content": "## Workflow G — Execute Scheduled Surge Events\n\n**Trigger:** Schedule Trigger every 1 minute\n\n**Purpose:** Polls the scheduled_surges table every minute. When a pending event's scheduled_at time arrives, fires the surge, marks it as fired, and notifies Discord.\n\n**Flow:**\nPoll schedule (1min) → Check due events (Postgres — finds rows where status=pending AND scheduled_at <= now+1min AND >= now-5min) → Any due? (IF node) → Fire surge (GitHub Action, surge mode) → Mark fired (Postgres UPDATE status=fired, fired_at=now) → Notify Discord\n\n**Supabase scheduled_surges table columns:**\nid · scheduled_at · label · status (pending/fired/cancelled) · fired_at · created_at\n\n**Cancellation:** Dashboard Cancel button PATCHes status=cancelled directly in Supabase. Workflow G's query only selects status=pending so cancelled rows are silently skipped.\n\n**5-minute lookback window:** `scheduled_at >= now - interval '5 minutes'` catches events that were due but missed due to n8n downtime or a missed tick. Without this, a scheduled event during a restart would be permanently skipped."
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [400, 100],
+      "position": [-200, 100],
       "id": "sticky-g",
-      "name": "Sticky Note G"
+      "name": "Sticky Note — Workflow G"
     },
     {
       "parameters": {
@@ -19,7 +19,7 @@
       "name": "Poll schedule",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [704, 300]
+      "position": [240, 300]
     },
     {
       "parameters": {
@@ -31,7 +31,7 @@
       "name": "Check due events",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [928, 300],
+      "position": [460, 300],
       "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
@@ -44,13 +44,13 @@
       "name": "Any due?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
-      "position": [1152, 300]
+      "position": [680, 300]
     },
     {
       "parameters": {
         "resource": "workflow",
-        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
-        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab" },
         "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
         "inputs": "{ \"mode\": \"surge\" }"
       },
@@ -58,7 +58,7 @@
       "name": "Fire surge",
       "type": "n8n-nodes-base.github",
       "typeVersion": 1,
-      "position": [1360, 220],
+      "position": [900, 220],
       "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } }
     },
     {
@@ -71,7 +71,7 @@
       "name": "Mark fired",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
-      "position": [1584, 220],
+      "position": [1120, 220],
       "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
     },
     {
@@ -86,7 +86,7 @@
       "name": "Notify Discord2",
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1808, 220],
+      "position": [1340, 220],
       "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
     }
   ],

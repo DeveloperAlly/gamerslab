@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## Workflow A — Scheduled Monitor\n\n**Trigger:** Schedule Trigger every 5 minutes\n\n**Purpose:** Randomly dispatches the Geo Monitor GitHub Action on approximately 30% of ticks — roughly once every 15 minutes on average. This creates natural variation and avoids predictable bot-like request patterns.\n\n**Flow:**\nSchedule Trigger (5min) → Random gate (30% pass) → Dispatch GitHub Action (standard mode) → [onError] Send Error Message (Discord)\n\n**On error:** GitHub dispatch failures are caught via onError=continueRegularOutput and posted to #gamers-lab-monitor immediately.\n\n**Dashboard control:** The toggle and interval selector on the Control page activates/deactivates this workflow and updates the Schedule Trigger interval via the n8n API.\n\n**Note:** GitHub Actions also runs its own cron (*/5 * * * *) as a primary fallback — this workflow adds randomness on top."
+        "content": "## Workflow A — Scheduled Monitor\n\n**Trigger:** Schedule Trigger every 5 minutes\n\n**Purpose:** Randomly dispatches the Geo Monitor GitHub Action approximately every 15 minutes on average. The 30% fire rate creates natural variation that avoids predictable bot-like patterns.\n\n**Flow:**\nSchedule Trigger (5min) → Random gate (30% pass) → Dispatch GitHub Action (standard mode) → [on error] Send Error Message (Discord)\n\n**On error:** `onError: continueRegularOutput` — GitHub dispatch failures flow to the Discord node and post to #gamers-lab-monitor.\n\n**Dashboard control:** Toggle and interval selector on Control page activates/deactivates this workflow and updates the Schedule Trigger interval via the n8n API through the Cloudflare Worker.\n\n**Note:** GitHub Actions also runs on its own cron (`*/5 * * * *`) as a primary fallback. This workflow adds randomness on top."
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [400, 100],
+      "position": [-200, 100],
       "id": "sticky-a",
-      "name": "Sticky Note A"
+      "name": "Sticky Note — Workflow A"
     },
     {
       "parameters": {
@@ -19,7 +19,7 @@
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1,
-      "position": [736, 300]
+      "position": [240, 300]
     },
     {
       "parameters": {
@@ -29,20 +29,20 @@
       "name": "Random gate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [960, 300]
+      "position": [460, 300]
     },
     {
       "parameters": {
         "resource": "workflow",
-        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly", "cachedResultUrl": "https://github.com/DeveloperAlly" },
-        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab", "cachedResultUrl": "https://github.com/DeveloperAlly/gamerslab" },
+        "owner": { "__rl": true, "value": "DeveloperAlly", "mode": "list", "cachedResultName": "DeveloperAlly" },
+        "repository": { "__rl": true, "value": "gamerslab", "mode": "list", "cachedResultName": "gamerslab" },
         "workflowId": { "__rl": true, "value": 292793083, "mode": "list", "cachedResultName": "Geo Monitor" },
         "ref": { "__rl": true, "value": "main", "mode": "list", "cachedResultName": "main" },
         "inputs": "{ \"mode\": \"standard\" }"
       },
       "type": "n8n-nodes-base.github",
       "typeVersion": 1.1,
-      "position": [1168, 300],
+      "position": [680, 300],
       "id": "e601587f-8033-4994-9b63-c79d32181995",
       "name": "Dispatch a workflow event",
       "credentials": { "githubApi": { "id": "tuQId7aQim7tmiS4", "name": "GitHub GamersLab" } },
@@ -51,14 +51,14 @@
     {
       "parameters": {
         "resource": "message",
-        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "list", "cachedResultName": "Wonderland" },
+        "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
         "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
         "content": "=❌ **ERROR IN WORKFLOW A — CHECK N8N & GITHUB**\n\n{{ $json.error }}",
         "options": {}
       },
       "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [1376, 300],
+      "position": [900, 300],
       "id": "9ceef9a8-c74f-4207-8e77-246939cf7e81",
       "name": "Send Error Message",
       "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
