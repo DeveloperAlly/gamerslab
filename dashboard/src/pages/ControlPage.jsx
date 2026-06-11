@@ -97,12 +97,15 @@ export default function ControlPage() {
   const [scheduleStatus, setScheduleStatus] = useState(null)
   const [toggleLoading, setToggleLoading] = useState(false)
 
+  // Click-check config
+  const [clickCheckPct, setClickCheckPct] = useState(30)
+  const [clickCheckStatus, setClickCheckStatus] = useState(null)
+
   const [scheduledSurges, setScheduledSurges] = useState([])
   const [newSurgeAt, setNewSurgeAt] = useState(defaultScheduledAt())
   const [newSurgeLabel, setNewSurgeLabel] = useState('')
   const [surgeScheduleStatus, setSurgeScheduleStatus] = useState(null)
 
-  // Referrers state
   const [referrers, setReferrers] = useState([])
   const [newRefUrl, setNewRefUrl] = useState('')
   const [newRefName, setNewRefName] = useState('')
@@ -117,6 +120,9 @@ export default function ControlPage() {
       .finally(() => setScheduleLoading(false))
     api.scheduledSurges().then(setScheduledSurges).catch(() => {})
     api.referrers().then(setReferrers).catch(() => {})
+    api.getConfig().then(cfg => {
+      if (cfg.click_check_percentage) setClickCheckPct(parseInt(cfg.click_check_percentage))
+    }).catch(() => {})
   }, [])
 
   async function runStandard() {
@@ -147,6 +153,14 @@ export default function ControlPage() {
       await api.setSchedule(intervalMinutes)
       setScheduleStatus({ type: 'success', msg: `Schedule updated — checks every ${intervalMinutes} min` })
     } catch (e) { setScheduleStatus({ type: 'error', msg: e.message }) }
+  }
+
+  async function saveClickCheckPct() {
+    setClickCheckStatus({ type: 'loading', msg: 'Saving…' })
+    try {
+      await api.setConfig('click_check_percentage', clickCheckPct)
+      setClickCheckStatus({ type: 'success', msg: `${clickCheckPct}% of runs will click "Run game"` })
+    } catch (e) { setClickCheckStatus({ type: 'error', msg: e.message }) }
   }
 
   async function scheduleSurge() {
@@ -243,7 +257,7 @@ export default function ControlPage() {
         {/* standard schedule */}
         <Card>
           <Label>standard check schedule</Label>
-          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px' }}>
+          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 12, fontWeight: 500 }}>Random interval — n8n Workflow A</div>
@@ -259,6 +273,31 @@ export default function ControlPage() {
               </select>
               <Btn onClick={saveSchedule} variant="primary">Save</Btn>
             </div>
+          </div>
+
+          {/* Click-check percentage */}
+          <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 500 }}>🖱 Run game click-check</div>
+                <div style={{ fontSize: 10, color: 'var(--mu)', marginTop: 2 }}>
+                  Click "Run game" on {clickCheckPct}% of visits — verifies login prompt appears
+                </div>
+              </div>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 600, color: 'var(--acc)', minWidth: 40, textAlign: 'right' }}>{clickCheckPct}%</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="range" min="0" max="100" step="10" value={clickCheckPct}
+                onChange={e => setClickCheckPct(parseInt(e.target.value))}
+                style={{ flex: 1, accentColor: 'var(--acc)', cursor: 'pointer' }}
+              />
+              <Btn onClick={saveClickCheckPct} variant="primary" style={{ flexShrink: 0 }}>Save</Btn>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: 'var(--hi)', fontFamily: 'var(--mono)', marginTop: 4 }}>
+              <span>0% — never</span><span>50% — half runs</span><span>100% — always</span>
+            </div>
+            <Status status={clickCheckStatus} />
           </div>
           <Status status={scheduleStatus} />
         </Card>
@@ -279,7 +318,7 @@ export default function ControlPage() {
                 min={new Date(Date.now() + 60000).toISOString().slice(0,16)}
                 max={new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString().slice(0,16)}
                 style={{ ...SEL, colorScheme: 'dark' }} />
-              <div style={{ fontSize: 10, color: 'var(--hi)', marginTop: 4, fontFamily: 'var(--mono)' }}>up to 15 days ahead · n8n fires within 1 minute of scheduled time</div>
+              <div style={{ fontSize: 10, color: 'var(--hi)', marginTop: 4, fontFamily: 'var(--mono)' }}>up to 15 days ahead · n8n fires within 1 minute</div>
             </div>
             <Btn onClick={scheduleSurge} variant="surge" fullWidth>Schedule surge</Btn>
           </div>
@@ -356,8 +395,6 @@ export default function ControlPage() {
           <div style={{ fontSize: 11, color: 'var(--mu)', marginBottom: 12, lineHeight: 1.5 }}>
             Each browser visit navigates to one of these pages first, dwells 2–4s, then navigates to the target — setting a realistic Referer header. Pulled live from Supabase by the GitHub Action runner.
           </div>
-
-          {/* existing referrers */}
           {referrers.length > 0 && (
             <div style={{ marginBottom: 10 }}>
               {referrers.map(r => (
@@ -374,10 +411,8 @@ export default function ControlPage() {
             </div>
           )}
           {referrers.length === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--hi)', fontFamily: 'var(--mono)', marginBottom: 10 }}>No referrers — visits will navigate directly to target</div>
+            <div style={{ fontSize: 11, color: 'var(--hi)', fontFamily: 'var(--mono)', marginBottom: 10 }}>No referrers — visits navigate directly to target</div>
           )}
-
-          {/* add new referrer */}
           <Divider />
           <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 8 }}>Add referrer</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
