@@ -35,10 +35,9 @@ async function workerFetch(path, opts = {}) {
 }
 
 export const api = {
-  // ── Supabase reads ────────────────────────────────────────────────────────
   results(hours = 24) {
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString()
-    return sbFetch(`/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,mode,checked_at&checked_at=gte.${since}&order=checked_at.desc&limit=2000`)
+    return sbFetch(`/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,runner_ip,mode,checked_at&checked_at=gte.${since}&order=checked_at.desc&limit=2000`)
   },
 
   activeTarget() {
@@ -50,7 +49,6 @@ export const api = {
     return sbFetch(`/rest/v1/targets?select=id,url,name,set_at,active&order=set_at.desc&limit=20`)
   },
 
-  // ── Supabase writes ───────────────────────────────────────────────────────
   async setTarget(url, name) {
     await sbFetch(`/rest/v1/targets?active=eq.true`, {
       method: 'PATCH',
@@ -64,12 +62,10 @@ export const api = {
     })
   },
 
-  // ── Worker — GitHub Actions trigger ──────────────────────────────────────
   trigger(mode, regions) {
     return workerFetch('/api/trigger', { body: { mode, regions } })
   },
 
-  // ── Worker — n8n schedule control ────────────────────────────────────────
   getWorkflowStatus() {
     return workerFetch('/api/workflow/status', { method: 'GET' })
   },
@@ -86,7 +82,6 @@ export const api = {
     return workerFetch('/api/workflow/deactivate', { body: {} })
   },
 
-  // ── Worker — Discord test ─────────────────────────────────────────────────
   testDiscord() {
     return workerFetch('/api/discord-test', { body: {} })
   },
