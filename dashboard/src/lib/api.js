@@ -36,14 +36,46 @@ async function workerFetch(path, opts = {}) {
 }
 
 export const api = {
-  // ── Monitor results ─────────────────────────────────────────────────────────
+  // ── Monitor results (windowed, for charts + live feed) ────────────────────
   results(hours = 24) {
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString()
     return sbFetch(
       `/rest/v1/monitor_results?select=region,status,ttfb_ms,cf_colo,runner_ip,mode,checked_at,` +
       `page_title,game_iframe_loaded,js_errors,page_blocked,render_error,referrer_used,click_check_done,login_prompt_shown` +
-      `&checked_at=gte.${since}&order=checked_at.desc&limit=2000`
+      `&checked_at=gte.${since}&order=checked_at.desc&limit=5000`
     )
+  },
+
+  // ── All-time aggregate stats (for top stat cards) ─────────────────────────
+  // Uses Supabase's built-in count via Prefer: count=exact header
+  // Returns { total, ok, failed, surgeTotal }
+  async allTimeStats() {
+    const [totalRes, okRes, surgeRes] = await Promise.all([
+      fetch(`${SB_URL}/rest/v1/monitor_results?select=id`, {
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Prefer: 'count=exact', 'Range-Unit': 'items', Range: '0-0' }
+      }),
+      fetch(`${SB_URL}/rest/v1/monitor_results?select=id&status=eq.1`, {
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Prefer: 'count=exact', 'Range-Unit': 'items', Range: '0-0' }
+      }),
+      fetch(`${SB_URL}/rest/v1/monitor_results?select=id&mode=eq.surge`, {
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Prefer: 'count=exact', 'Range-Unit': 'items', Range: '0-0' }
+      }),
+    ])
+
+    const parseCount = res => {
+      const range = res.headers.get('Content-Range')
+      if (range) {
+        const match = range.match(/\/(\d+)$/)
+        if (match) return parseInt(match[1])
+      }
+      return 0
+    }
+
+    const total = parseCount(totalRes)
+    const ok = parseCount(okRes)
+    const surgeTotal = parseCount(surgeRes)
+
+    return { total, ok, failed: total - ok, surgeTotal }
   },
 
   // ── Targets ──────────────────────────────────────────────────────────────────
@@ -71,7 +103,6 @@ export const api = {
 
   // ── Referrers ──────────────────────────────────────────────────────────────
   referrers() {
-    // distinct on url to prevent showing duplicates from multiple seed runs
     return sbFetch(`/rest/v1/referrers?select=id,url,name,enabled&order=created_at.asc`)
       .then(rows => {
         const seen = new Set()
@@ -117,9 +148,6 @@ export const api = {
       .catch(() => ({}))
   },
 
-  // UPSERT: works whether the row exists or not, and whether the table
-  // was just created or pre-existing. PATCH on 0 matching rows returns 204
-  // with no body which looks like success but writes nothing.
   setConfig(key, value) {
     return sbFetch(`/rest/v1/monitor_config`, {
       method: 'POST',
