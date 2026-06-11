@@ -3,7 +3,7 @@ name: Geo Monitor
 on:
   # Triggered exclusively by n8n Workflow A (via dashboard schedule control)
   # or manually from the dashboard Run Now / Trigger Surge buttons.
-  # The GitHub cron has been removed — n8n is the sole scheduler.
+  # n8n is the sole scheduler — no GitHub cron.
   workflow_dispatch:
     inputs:
       mode:
@@ -179,10 +179,7 @@ jobs:
           print(f"Pushed: region={os.environ['REGION']} country={actual_country} ip={runner_ip} vpn={os.environ['VPN_CONF']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms login={data.get('login_prompt_shown')}")
           EOF
 
-      - name: Disconnect VPN
-        if: always()
-        run: sudo wg-quick down wg0 || true
-
+      # Surge runs BEFORE VPN disconnect so surge traffic goes through VPN tunnel
       - name: Surge parallel checks
         if: ${{ github.event.inputs.mode == 'surge' }}
         env:
@@ -191,3 +188,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: node .github/scripts/surge.js
+
+      # Always disconnect VPN last — after surge so all traffic routes through VPN
+      - name: Disconnect VPN
+        if: always()
+        run: sudo wg-quick down wg0 || true
