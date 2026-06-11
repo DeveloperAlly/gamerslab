@@ -6,7 +6,10 @@
       { "parameters": { "jsCode": "if (Math.random() > 0.3) { return []; }\nreturn [{ json: { proceed: true } }];" }, "id": "random-gate", "name": "Random gate", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300] },
       { "parameters": { "method": "POST", "url": "=https://api.github.com/repos/{{$env.GITHUB_REPO_OWNER}}/{{$env.GITHUB_REPO_NAME}}/actions/workflows/monitor.yml/dispatches", "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth", "sendBody": true, "specifyBody": "json", "jsonBody": "={\"ref\":\"main\",\"inputs\":{\"mode\":\"standard\"}}", "options": {} }, "id": "dispatch-standard", "name": "Dispatch standard run", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [680, 300], "credentials": { "httpHeaderAuth": { "id": "github-pat", "name": "GitHub PAT" } } }
     ],
-    "connections": { "Schedule Trigger": { "main": [[{ "node": "Random gate", "type": "main", "index": 0 }]] }, "Random gate": { "main": [[{ "node": "Dispatch standard run", "type": "main", "index": 0 }]] } },
+    "connections": {
+      "Schedule Trigger": { "main": [[{ "node": "Random gate", "type": "main", "index": 0 }]] },
+      "Random gate": { "main": [[{ "node": "Dispatch standard run", "type": "main", "index": 0 }]] }
+    },
     "settings": { "executionOrder": "v1" }
   },
   {
@@ -16,30 +19,112 @@
       { "parameters": { "method": "POST", "url": "=https://api.github.com/repos/{{$env.GITHUB_REPO_OWNER}}/{{$env.GITHUB_REPO_NAME}}/actions/workflows/monitor.yml/dispatches", "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth", "sendBody": true, "specifyBody": "json", "jsonBody": "={\"ref\":\"main\",\"inputs\":{\"mode\":\"surge\",\"regions\":\"us-east,eu-west,ap-southeast,sa-east,me-south,af-south\"}}", "options": {} }, "id": "dispatch-surge", "name": "Dispatch surge run", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [460, 300], "credentials": { "httpHeaderAuth": { "id": "github-pat", "name": "GitHub PAT" } } },
       { "parameters": { "respondWith": "json", "responseBody": "={ \"triggered\": true }", "options": {} }, "id": "respond", "name": "Respond", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [680, 300] }
     ],
-    "connections": { "Surge webhook": { "main": [[{ "node": "Dispatch surge run", "type": "main", "index": 0 }]] }, "Dispatch surge run": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] } },
+    "connections": {
+      "Surge webhook": { "main": [[{ "node": "Dispatch surge run", "type": "main", "index": 0 }]] },
+      "Dispatch surge run": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+    },
     "settings": { "executionOrder": "v1" }
   },
   {
     "name": "Workflow C — Failure alerting (Discord)",
     "nodes": [
-      { "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] } }, "id": "alert-schedule", "name": "Alert schedule", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [240, 300] },
-      { "parameters": { "method": "GET", "url": "=https://{{$env.SUPABASE_PROJECT_REF}}.supabase.co/rest/v1/monitor_results", "sendQuery": true, "queryParameters": { "parameters": [ { "name": "select", "value": "region,ttfb_ms,cf_colo,checked_at,status" }, { "name": "status", "value": "eq.0" }, { "name": "checked_at", "value": "gte.{{new Date(Date.now()-30*60*1000).toISOString()}}" }, { "name": "order", "value": "checked_at.desc" } ] }, "sendHeaders": true, "headerParameters": { "parameters": [ { "name": "apikey", "value": "={{$env.SUPABASE_SECRET_KEY}}" }, { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SECRET_KEY}}" } ] }, "options": {} }, "id": "check-failures", "name": "Check for failures", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [460, 300] },
-      { "parameters": { "conditions": { "number": [{ "value1": "={{ $items().length }}", "operation": "larger", "value2": 0 }] } }, "id": "if-failures", "name": "Any failures?", "type": "n8n-nodes-base.if", "typeVersion": 1, "position": [680, 300] },
-      { "parameters": { "method": "POST", "url": "={{$env.DISCORD_WEBHOOK_URL}}", "sendBody": true, "specifyBody": "json", "jsonBody": "={\n  \"embeds\": [{\n    \"title\": \"🚨 Geo monitor failure\",\n    \"color\": 15548997,\n    \"fields\": [\n      { \"name\": \"Region\", \"value\": \"{{ $json.region }}\", \"inline\": true },\n      { \"name\": \"TTFB\", \"value\": \"{{ $json.ttfb_ms }}ms\", \"inline\": true },\n      { \"name\": \"PoP\", \"value\": \"{{ $json.cf_colo || '—' }}\", \"inline\": true },\n      { \"name\": \"Time\", \"value\": \"{{ $json.checked_at }}\", \"inline\": false }\n    ],\n    \"footer\": { \"text\": \"GamersLab Monitor\" }\n  }]\n}", "options": {} }, "id": "discord-alert", "name": "Discord alert", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [900, 220] }
+      {
+        "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] } },
+        "id": "alert-schedule", "name": "Alert schedule",
+        "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [240, 300]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT region, ttfb_ms, cf_colo, checked_at FROM monitor_results WHERE checked_at > now() - interval '30 minutes' AND status = 0 ORDER BY checked_at DESC",
+          "options": {}
+        },
+        "id": "check-failures", "name": "Check for failures",
+        "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [460, 300],
+        "credentials": { "postgres": { "id": "supabase-db", "name": "Postgres GamersLab" } }
+      },
+      {
+        "parameters": {
+          "conditions": { "number": [{ "value1": "={{ $items().length }}", "operation": "larger", "value2": 0 }] }
+        },
+        "id": "if-failures", "name": "Any failures?",
+        "type": "n8n-nodes-base.if", "typeVersion": 1, "position": [680, 300]
+      },
+      {
+        "parameters": {
+          "operation": "sendMessage",
+          "webhookUri": "={{$env.DISCORD_WEBHOOK_URL}}",
+          "text": "=🚨 **Geo monitor failure**\n\n**Region:** {{ $json.region }}\n**TTFB:** {{ $json.ttfb_ms }}ms\n**PoP:** {{ $json.cf_colo || '—' }}\n**Time:** {{ $json.checked_at }}"
+        },
+        "id": "discord-alert", "name": "Discord alert",
+        "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [900, 220],
+        "credentials": { "discordWebhookApi": { "id": "discord-webhook", "name": "Discord webhook" } }
+      }
     ],
-    "connections": { "Alert schedule": { "main": [[{ "node": "Check for failures", "type": "main", "index": 0 }]] }, "Check for failures": { "main": [[{ "node": "Any failures?", "type": "main", "index": 0 }]] }, "Any failures?": { "main": [ [{ "node": "Discord alert", "type": "main", "index": 0 }], [] ] } },
+    "connections": {
+      "Alert schedule": { "main": [[{ "node": "Check for failures", "type": "main", "index": 0 }]] },
+      "Check for failures": { "main": [[{ "node": "Any failures?", "type": "main", "index": 0 }]] },
+      "Any failures?": { "main": [ [{ "node": "Discord alert", "type": "main", "index": 0 }], [] ] }
+    },
     "settings": { "executionOrder": "v1" }
   },
   {
     "name": "Workflow D — Target URL sync",
     "nodes": [
-      { "parameters": { "httpMethod": "POST", "path": "update-target", "responseMode": "responseNode", "options": {} }, "id": "target-webhook", "name": "Target webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 300], "webhookId": "update-target" },
-      { "parameters": { "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url } }];" }, "id": "validate-url", "name": "Validate URL", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300] },
-      { "parameters": { "method": "POST", "url": "=https://{{$env.SUPABASE_PROJECT_REF}}.supabase.co/rest/v1/targets", "sendBody": true, "specifyBody": "json", "jsonBody": "={\"url\":\"{{$json.url}}\",\"name\":\"{{$json.name}}\",\"set_at\":\"{{new Date().toISOString()}}\",\"active\":true}", "sendHeaders": true, "headerParameters": { "parameters": [ { "name": "apikey", "value": "={{$env.SUPABASE_SECRET_KEY}}" }, { "name": "Authorization", "value": "=Bearer {{$env.SUPABASE_SECRET_KEY}}" }, { "name": "Prefer", "value": "return=minimal" } ] }, "options": {} }, "id": "save-to-supabase", "name": "Save to Supabase", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [680, 300] },
-      { "parameters": { "method": "POST", "url": "={{$env.DISCORD_WEBHOOK_URL}}", "sendBody": true, "specifyBody": "json", "jsonBody": "={\"content\":\"🎯 Monitor target updated\\n**New URL:** {{$json.url}}\\n**Name:** {{$json.name}}\"}", "options": {} }, "id": "notify-discord", "name": "Notify Discord", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [900, 300] },
-      { "parameters": { "respondWith": "json", "responseBody": "={ \"updated\": true }", "options": {} }, "id": "respond-target", "name": "Respond", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [1100, 300] }
+      {
+        "parameters": { "httpMethod": "POST", "path": "update-target", "responseMode": "responseNode", "options": {} },
+        "id": "target-webhook", "name": "Target webhook",
+        "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 300], "webhookId": "update-target"
+      },
+      {
+        "parameters": {
+          "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url } }];"
+        },
+        "id": "validate-url", "name": "Validate URL",
+        "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300]
+      },
+      {
+        "parameters": {
+          "operation": "upsert",
+          "schema": { "value": "public" },
+          "table": { "value": "targets" },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "url": "={{ $json.url }}",
+              "name": "={{ $json.name }}",
+              "set_at": "={{ new Date().toISOString() }}",
+              "active": true
+            }
+          },
+          "options": {}
+        },
+        "id": "save-to-supabase", "name": "Save to Supabase",
+        "type": "n8n-nodes-base.supabase", "typeVersion": 1, "position": [680, 300],
+        "credentials": { "supabaseApi": { "id": "supabase-creds", "name": "Supabase" } }
+      },
+      {
+        "parameters": {
+          "operation": "sendMessage",
+          "webhookUri": "={{$env.DISCORD_WEBHOOK_URL}}",
+          "text": "=🎯 **Monitor target updated**\n\n**URL:** {{ $json.url }}\n**Name:** {{ $json.name }}"
+        },
+        "id": "notify-discord", "name": "Notify Discord",
+        "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [900, 300],
+        "credentials": { "discordWebhookApi": { "id": "discord-webhook", "name": "Discord webhook" } }
+      },
+      {
+        "parameters": { "respondWith": "json", "responseBody": "={ \"updated\": true }", "options": {} },
+        "id": "respond-target", "name": "Respond",
+        "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [1100, 300]
+      }
     ],
-    "connections": { "Target webhook": { "main": [[{ "node": "Validate URL", "type": "main", "index": 0 }]] }, "Validate URL": { "main": [[{ "node": "Save to Supabase", "type": "main", "index": 0 }]] }, "Save to Supabase": { "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]] }, "Notify Discord": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] } },
+    "connections": {
+      "Target webhook": { "main": [[{ "node": "Validate URL", "type": "main", "index": 0 }]] },
+      "Validate URL": { "main": [[{ "node": "Save to Supabase", "type": "main", "index": 0 }]] },
+      "Save to Supabase": { "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]] },
+      "Notify Discord": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+    },
     "settings": { "executionOrder": "v1" }
   }
 ]
