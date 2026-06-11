@@ -1,11 +1,9 @@
 {
-  "name": "Workflow C — Failure alerting",
+  "name": "Workflow C — Failure alerting (Discord)",
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
-        }
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 15 }] }
       },
       "id": "alert-schedule",
       "name": "Alert schedule",
@@ -16,61 +14,67 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT region, ttfb_ms, cf_colo, checked_at FROM monitor_results WHERE checked_at > now() - interval '30 minutes' AND status = 0 ORDER BY checked_at DESC",
+        "query": "SELECT\n  COUNT(*) FILTER (WHERE status = 0) AS failure_count,\n  COUNT(*) AS total_count,\n  MAX(checked_at) AS last_seen\nFROM monitor_results\nWHERE checked_at > now() - interval '30 minutes'",
         "options": {}
       },
-      "id": "check-failures",
-      "name": "Check for failures",
+      "id": "check-status",
+      "name": "Check status",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2,
       "position": [460, 300],
       "credentials": {
-        "postgres": { "id": "supabase-db", "name": "Supabase DB" }
+        "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
       }
     },
     {
       "parameters": {
-        "conditions": {
-          "number": [
-            {
-              "value1": "={{ $items().length }}",
-              "operation": "larger",
-              "value2": 0
-            }
-          ]
-        }
+        "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst lastSeen = row.last_seen;\n\n// Pipeline dead — no results at all in last 30 minutes\nif (total === 0) {\n  return [{ json: { alertType: 'dead', message: '💀 **Monitor pipeline is down**\\n\\nNo results received in the last 30 minutes.\\nGitHub Actions may have stopped running.\\n\\nCheck: https://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\n// Region failures\nif (failures > 0) {\n  return [{ json: { alertType: 'failure', message: `🚨 **Geo monitor failures detected**\\n\\n**Failed checks:** ${failures} of ${total} in last 30 min\\n**Last result:** ${lastSeen}` } }];\n}\n\n// All good — no alert\nreturn [];"
       },
-      "id": "if-failures",
-      "name": "Any failures?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
+      "id": "evaluate-status",
+      "name": "Evaluate status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [680, 300]
     },
     {
       "parameters": {
-        "channel": "#monitoring",
-        "text": "=🚨 Geo monitor failure\n\nRegion: {{ $json.region }}\nTTFB: {{ $json.ttfb_ms }}ms\nPoP: {{ $json.cf_colo }}\nTime: {{ $json.checked_at }}",
-        "otherOptions": {}
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "1066890817425387581",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "1514424075282550916",
+          "mode": "list",
+          "cachedResultName": "gamers-lab-monitor"
+        },
+        "content": "={{ $json.message }}",
+        "options": {}
       },
-      "id": "slack-alert",
-      "name": "Slack alert",
-      "type": "n8n-nodes-base.slack",
+      "id": "discord-alert",
+      "name": "Send alert",
+      "type": "n8n-nodes-base.discord",
       "typeVersion": 2,
-      "position": [900, 220],
+      "position": [900, 300],
       "credentials": {
-        "slackApi": { "id": "slack-creds", "name": "Slack" }
+        "discordBotApi": {
+          "id": "TjYM6pZNQ2PGSVmG",
+          "name": "Discord Bot GamersLab"
+        }
       }
     }
   ],
   "connections": {
     "Alert schedule": {
-      "main": [[{ "node": "Check for failures", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Check status", "type": "main", "index": 0 }]]
     },
-    "Check for failures": {
-      "main": [[{ "node": "Any failures?", "type": "main", "index": 0 }]]
+    "Check status": {
+      "main": [[{ "node": "Evaluate status", "type": "main", "index": 0 }]]
     },
-    "Any failures?": {
-      "main": [[{ "node": "Slack alert", "type": "main", "index": 0 }], []]
+    "Evaluate status": {
+      "main": [[{ "node": "Send alert", "type": "main", "index": 0 }]]
     }
   },
   "settings": { "executionOrder": "v1" }

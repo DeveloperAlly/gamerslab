@@ -1,0 +1,101 @@
+{
+  "name": "Workflow E — Scheduled surge testing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] }
+      },
+      "id": "surge-schedule",
+      "name": "Surge schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "if (Math.random() > 0.5) { return []; }\nreturn [{ json: { proceed: true } }];"
+      },
+      "id": "surge-gate",
+      "name": "Random surge gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "workflowDispatch",
+        "owner": "={{ $env.GITHUB_REPO_OWNER }}",
+        "repository": "={{ $env.GITHUB_REPO_NAME }}",
+        "workflowId": "monitor.yml",
+        "ref": "main",
+        "additionalFields": {
+          "inputs": {
+            "inputsUi": {
+              "inputValues": [
+                { "name": "mode", "value": "surge" },
+                {
+                  "name": "regions",
+                  "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "id": "dispatch-scheduled-surge",
+      "name": "Dispatch scheduled surge",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "githubApi": {
+          "id": "QYTeIJkdqrhQltwn",
+          "name": "GitHub DeveloperAlly"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "1066890817425387581",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "1514424075282550916",
+          "mode": "list",
+          "cachedResultName": "gamers-lab-monitor"
+        },
+        "content": "⚡ **Scheduled surge test fired**\n\nAutomated campaign spike simulation starting across all 6 regions.",
+        "options": {}
+      },
+      "id": "surge-notify",
+      "name": "Notify Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "credentials": {
+        "discordBotApi": {
+          "id": "TjYM6pZNQ2PGSVmG",
+          "name": "Discord Bot GamersLab"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Surge schedule": {
+      "main": [[{ "node": "Random surge gate", "type": "main", "index": 0 }]]
+    },
+    "Random surge gate": {
+      "main": [
+        [{ "node": "Dispatch scheduled surge", "type": "main", "index": 0 }]
+      ]
+    },
+    "Dispatch scheduled surge": {
+      "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

@@ -1,0 +1,143 @@
+{
+  "name": "Workflow G — Execute scheduled surge events",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 1 }] }
+      },
+      "id": "poll-schedule",
+      "name": "Poll schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, scheduled_at, label FROM scheduled_surges\nWHERE status = 'pending'\nAND scheduled_at <= now() + interval '1 minute'\nAND scheduled_at >= now() - interval '5 minutes'\nORDER BY scheduled_at ASC\nLIMIT 5",
+        "options": {}
+      },
+      "id": "check-due",
+      "name": "Check due events",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $items().length }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "any-due",
+      "name": "Any due?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "resource": "workflowDispatch",
+        "owner": "={{ $env.GITHUB_REPO_OWNER }}",
+        "repository": "={{ $env.GITHUB_REPO_NAME }}",
+        "workflowId": "monitor.yml",
+        "ref": "main",
+        "additionalFields": {
+          "inputs": {
+            "inputsUi": {
+              "inputValues": [
+                { "name": "mode", "value": "surge" },
+                {
+                  "name": "regions",
+                  "value": "us-east,eu-west,ap-southeast,sa-east,me-south,af-south"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "id": "fire-surge",
+      "name": "Fire surge",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1,
+      "position": [900, 220],
+      "credentials": {
+        "githubApi": {
+          "id": "QYTeIJkdqrhQltwn",
+          "name": "GitHub DeveloperAlly"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE scheduled_surges SET status = 'fired', fired_at = now() WHERE id = {{ $json.id }}",
+        "options": {}
+      },
+      "id": "mark-fired",
+      "name": "Mark fired",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1120, 220],
+      "credentials": {
+        "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "guildId": {
+          "__rl": true,
+          "value": "1066890817425387581",
+          "mode": "id"
+        },
+        "channelId": {
+          "__rl": true,
+          "value": "1514424075282550916",
+          "mode": "list",
+          "cachedResultName": "gamers-lab-monitor"
+        },
+        "content": "=⚡ **Scheduled surge fired**\n\n**Event:** {{ $json.label }}\n**Scheduled for:** {{ $json.scheduled_at }}\n\nSurge test running across all 6 regions now.",
+        "options": {}
+      },
+      "id": "fire-discord",
+      "name": "Notify Discord",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 2,
+      "position": [1340, 220],
+      "credentials": {
+        "discordBotApi": {
+          "id": "TjYM6pZNQ2PGSVmG",
+          "name": "Discord Bot GamersLab"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Poll schedule": {
+      "main": [[{ "node": "Check due events", "type": "main", "index": 0 }]]
+    },
+    "Check due events": {
+      "main": [[{ "node": "Any due?", "type": "main", "index": 0 }]]
+    },
+    "Any due?": {
+      "main": [[{ "node": "Fire surge", "type": "main", "index": 0 }], []]
+    },
+    "Fire surge": {
+      "main": [[{ "node": "Mark fired", "type": "main", "index": 0 }]]
+    },
+    "Mark fired": {
+      "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}
