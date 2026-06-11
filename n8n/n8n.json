@@ -2,9 +2,37 @@
   {
     "name": "Workflow A — Scheduled monitor",
     "nodes": [
-      { "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] } }, "id": "schedule-trigger", "name": "Schedule Trigger", "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [240, 300] },
-      { "parameters": { "jsCode": "if (Math.random() > 0.3) { return []; }\nreturn [{ json: { proceed: true } }];" }, "id": "random-gate", "name": "Random gate", "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300] },
-      { "parameters": { "method": "POST", "url": "=https://api.github.com/repos/{{$env.GITHUB_REPO_OWNER}}/{{$env.GITHUB_REPO_NAME}}/actions/workflows/monitor.yml/dispatches", "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth", "sendBody": true, "specifyBody": "json", "jsonBody": "={\"ref\":\"main\",\"inputs\":{\"mode\":\"standard\"}}", "options": {} }, "id": "dispatch-standard", "name": "Dispatch standard run", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [680, 300], "credentials": { "httpHeaderAuth": { "id": "github-pat", "name": "GitHub PAT" } } }
+      {
+        "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] } },
+        "id": "schedule-trigger", "name": "Schedule Trigger",
+        "type": "n8n-nodes-base.scheduleTrigger", "typeVersion": 1, "position": [240, 300]
+      },
+      {
+        "parameters": {
+          "jsCode": "// ~30% fire rate — random interval effect\nif (Math.random() > 0.3) { return []; }\nreturn [{ json: { proceed: true } }];"
+        },
+        "id": "random-gate", "name": "Random gate",
+        "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://api.github.com/repos/{{$env.GITHUB_REPO_OWNER}}/{{$env.GITHUB_REPO_NAME}}/actions/workflows/monitor.yml/dispatches",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "githubApi",
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              { "name": "ref", "value": "main" },
+              { "name": "inputs", "value": "={{ JSON.stringify({ mode: 'standard' }) }}" }
+            ]
+          },
+          "options": { "response": { "response": { "responseFormat": "text" } } }
+        },
+        "id": "dispatch-standard", "name": "Dispatch standard run",
+        "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [680, 300],
+        "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
+      }
     ],
     "connections": {
       "Schedule Trigger": { "main": [[{ "node": "Random gate", "type": "main", "index": 0 }]] },
@@ -15,9 +43,35 @@
   {
     "name": "Workflow B — Campaign surge webhook",
     "nodes": [
-      { "parameters": { "httpMethod": "POST", "path": "surge", "responseMode": "responseNode", "options": {} }, "id": "surge-webhook", "name": "Surge webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 300], "webhookId": "surge" },
-      { "parameters": { "method": "POST", "url": "=https://api.github.com/repos/{{$env.GITHUB_REPO_OWNER}}/{{$env.GITHUB_REPO_NAME}}/actions/workflows/monitor.yml/dispatches", "authentication": "genericCredentialType", "genericAuthType": "httpHeaderAuth", "sendBody": true, "specifyBody": "json", "jsonBody": "={\"ref\":\"main\",\"inputs\":{\"mode\":\"surge\",\"regions\":\"us-east,eu-west,ap-southeast,sa-east,me-south,af-south\"}}", "options": {} }, "id": "dispatch-surge", "name": "Dispatch surge run", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [460, 300], "credentials": { "httpHeaderAuth": { "id": "github-pat", "name": "GitHub PAT" } } },
-      { "parameters": { "respondWith": "json", "responseBody": "={ \"triggered\": true }", "options": {} }, "id": "respond", "name": "Respond", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [680, 300] }
+      {
+        "parameters": { "httpMethod": "POST", "path": "surge", "responseMode": "responseNode", "options": {} },
+        "id": "surge-webhook", "name": "Surge webhook",
+        "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [240, 300], "webhookId": "surge"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://api.github.com/repos/{{$env.GITHUB_REPO_OWNER}}/{{$env.GITHUB_REPO_NAME}}/actions/workflows/monitor.yml/dispatches",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "githubApi",
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              { "name": "ref", "value": "main" },
+              { "name": "inputs", "value": "={{ JSON.stringify({ mode: 'surge', regions: 'us-east,eu-west,ap-southeast,sa-east,me-south,af-south' }) }}" }
+            ]
+          },
+          "options": { "response": { "response": { "responseFormat": "text" } } }
+        },
+        "id": "dispatch-surge", "name": "Dispatch surge run",
+        "type": "n8n-nodes-base.httpRequest", "typeVersion": 4, "position": [460, 300],
+        "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
+      },
+      {
+        "parameters": { "respondWith": "json", "responseBody": "={ \"triggered\": true }", "options": {} },
+        "id": "respond", "name": "Respond",
+        "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [680, 300]
+      }
     ],
     "connections": {
       "Surge webhook": { "main": [[{ "node": "Dispatch surge run", "type": "main", "index": 0 }]] },
@@ -41,7 +95,7 @@
         },
         "id": "check-failures", "name": "Check for failures",
         "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [460, 300],
-        "credentials": { "postgres": { "id": "supabase-db", "name": "Postgres GamersLab" } }
+        "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
       },
       {
         "parameters": {
@@ -52,19 +106,21 @@
       },
       {
         "parameters": {
-          "operation": "sendMessage",
-          "webhookUri": "={{$env.DISCORD_WEBHOOK_URL}}",
-          "text": "=🚨 **Geo monitor failure**\n\n**Region:** {{ $json.region }}\n**TTFB:** {{ $json.ttfb_ms }}ms\n**PoP:** {{ $json.cf_colo || '—' }}\n**Time:** {{ $json.checked_at }}"
+          "resource": "message",
+          "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+          "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+          "content": "=\ud83d\udea8 **Geo monitor failure**\n\n**Region:** {{ $json.region }}\n**TTFB:** {{ $json.ttfb_ms }}ms\n**PoP:** {{ $json.cf_colo }}\n**Time:** {{ $json.checked_at }}",
+          "options": {}
         },
-        "id": "discord-alert", "name": "Discord alert",
+        "id": "discord-alert", "name": "Send a message",
         "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [900, 220],
-        "credentials": { "discordWebhookApi": { "id": "discord-webhook", "name": "Discord webhook" } }
+        "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
       }
     ],
     "connections": {
       "Alert schedule": { "main": [[{ "node": "Check for failures", "type": "main", "index": 0 }]] },
       "Check for failures": { "main": [[{ "node": "Any failures?", "type": "main", "index": 0 }]] },
-      "Any failures?": { "main": [ [{ "node": "Discord alert", "type": "main", "index": 0 }], [] ] }
+      "Any failures?": { "main": [ [{ "node": "Send a message", "type": "main", "index": 0 }], [] ] }
     },
     "settings": { "executionOrder": "v1" }
   },
@@ -78,40 +134,34 @@
       },
       {
         "parameters": {
-          "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url } }];"
+          "jsCode": "const { url, name } = $input.first().json.body;\nif (!url) throw new Error('url is required');\nreturn [{ json: { url, name: name || url, set_at: new Date().toISOString(), active: true } }];"
         },
         "id": "validate-url", "name": "Validate URL",
         "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [460, 300]
       },
       {
         "parameters": {
-          "operation": "upsert",
-          "schema": { "value": "public" },
-          "table": { "value": "targets" },
-          "columns": {
-            "mappingMode": "defineBelow",
-            "value": {
-              "url": "={{ $json.url }}",
-              "name": "={{ $json.name }}",
-              "set_at": "={{ new Date().toISOString() }}",
-              "active": true
-            }
-          },
+          "operation": "insert",
+          "schema": { "__rl": true, "value": "public", "mode": "list" },
+          "table": { "__rl": true, "value": "targets", "mode": "list", "cachedResultName": "targets" },
+          "dataMode": "autoMapInputData",
           "options": {}
         },
         "id": "save-to-supabase", "name": "Save to Supabase",
-        "type": "n8n-nodes-base.supabase", "typeVersion": 1, "position": [680, 300],
-        "credentials": { "supabaseApi": { "id": "supabase-creds", "name": "Supabase" } }
+        "type": "n8n-nodes-base.postgres", "typeVersion": 2, "position": [680, 300],
+        "credentials": { "postgres": { "id": "feCyf8b8GoMyHCPS", "name": "Postgres GamersLab" } }
       },
       {
         "parameters": {
-          "operation": "sendMessage",
-          "webhookUri": "={{$env.DISCORD_WEBHOOK_URL}}",
-          "text": "=🎯 **Monitor target updated**\n\n**URL:** {{ $json.url }}\n**Name:** {{ $json.name }}"
+          "resource": "message",
+          "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
+          "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
+          "content": "=\ud83c\udfaf **Monitor target updated**\n\n**URL:** {{ $json.url }}\n**Name:** {{ $json.name }}",
+          "options": {}
         },
         "id": "notify-discord", "name": "Notify Discord",
         "type": "n8n-nodes-base.discord", "typeVersion": 2, "position": [900, 300],
-        "credentials": { "discordWebhookApi": { "id": "discord-webhook", "name": "Discord webhook" } }
+        "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
       },
       {
         "parameters": { "respondWith": "json", "responseBody": "={ \"updated\": true }", "options": {} },
