@@ -4,9 +4,7 @@
     "nodes": [
       {
         "parameters": {
-          "rule": {
-            "interval": [{ "field": "minutes", "minutesInterval": 5 }]
-          }
+          "rule": { "interval": [{ "field": "minutes", "minutesInterval": 5 }] }
         },
         "id": "schedule-trigger",
         "name": "Schedule Trigger",
@@ -34,9 +32,7 @@
           "additionalFields": {
             "inputs": {
               "inputsUi": {
-                "inputValues": [
-                  { "name": "mode", "value": "standard" }
-                ]
+                "inputValues": [{ "name": "mode", "value": "standard" }]
               }
             }
           }
@@ -46,9 +42,7 @@
         "type": "n8n-nodes-base.github",
         "typeVersion": 1,
         "position": [680, 300],
-        "credentials": {
-          "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" }
-        }
+        "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
       }
     ],
     "connections": {
@@ -97,9 +91,7 @@
         "type": "n8n-nodes-base.github",
         "typeVersion": 1,
         "position": [460, 300],
-        "credentials": {
-          "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" }
-        }
+        "credentials": { "githubApi": { "id": "QYTeIJkdqrhQltwn", "name": "GitHub DeveloperAlly" } }
       },
       {
         "parameters": {
@@ -136,11 +128,11 @@
       {
         "parameters": {
           "operation": "executeQuery",
-          "query": "SELECT region, ttfb_ms, cf_colo, checked_at FROM monitor_results WHERE checked_at > now() - interval '30 minutes' AND status = 0 ORDER BY checked_at DESC",
+          "query": "SELECT\n  COUNT(*) FILTER (WHERE status = 0) AS failure_count,\n  COUNT(*) AS total_count,\n  MAX(checked_at) AS last_seen\nFROM monitor_results\nWHERE checked_at > now() - interval '30 minutes'",
           "options": {}
         },
-        "id": "check-failures",
-        "name": "Check for failures",
+        "id": "check-status",
+        "name": "Check status",
         "type": "n8n-nodes-base.postgres",
         "typeVersion": 2,
         "position": [460, 300],
@@ -148,14 +140,12 @@
       },
       {
         "parameters": {
-          "conditions": {
-            "number": [{ "value1": "={{ $items().length }}", "operation": "larger", "value2": 0 }]
-          }
+          "jsCode": "const row = $input.first().json;\nconst failures = parseInt(row.failure_count) || 0;\nconst total = parseInt(row.total_count) || 0;\nconst lastSeen = row.last_seen;\n\n// Pipeline dead — no results at all in last 30 minutes\nif (total === 0) {\n  return [{ json: { alertType: 'dead', message: '💀 **Monitor pipeline is down**\\n\\nNo results received in the last 30 minutes.\\nGitHub Actions may have stopped running.\\n\\nCheck: https://github.com/DeveloperAlly/gamerslab/actions' } }];\n}\n\n// Region failures\nif (failures > 0) {\n  return [{ json: { alertType: 'failure', message: `🚨 **Geo monitor failures detected**\\n\\n**Failed checks:** ${failures} of ${total} in last 30 min\\n**Last result:** ${lastSeen}` } }];\n}\n\n// All good — no alert\nreturn [];"
         },
-        "id": "if-failures",
-        "name": "Any failures?",
-        "type": "n8n-nodes-base.if",
-        "typeVersion": 1,
+        "id": "evaluate-status",
+        "name": "Evaluate status",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
         "position": [680, 300]
       },
       {
@@ -163,21 +153,21 @@
           "resource": "message",
           "guildId": { "__rl": true, "value": "1066890817425387581", "mode": "id" },
           "channelId": { "__rl": true, "value": "1514424075282550916", "mode": "list", "cachedResultName": "gamers-lab-monitor" },
-          "content": "=🚨 **Geo monitor failure**\n\n**Region:** {{ $json.region }}\n**TTFB:** {{ $json.ttfb_ms }}ms\n**PoP:** {{ $json.cf_colo }}\n**Time:** {{ $json.checked_at }}",
+          "content": "={{ $json.message }}",
           "options": {}
         },
         "id": "discord-alert",
-        "name": "Send a message",
+        "name": "Send alert",
         "type": "n8n-nodes-base.discord",
         "typeVersion": 2,
-        "position": [900, 220],
+        "position": [900, 300],
         "credentials": { "discordBotApi": { "id": "TjYM6pZNQ2PGSVmG", "name": "Discord Bot GamersLab" } }
       }
     ],
     "connections": {
-      "Alert schedule": { "main": [[{ "node": "Check for failures", "type": "main", "index": 0 }]] },
-      "Check for failures": { "main": [[{ "node": "Any failures?", "type": "main", "index": 0 }]] },
-      "Any failures?": { "main": [[{ "node": "Send a message", "type": "main", "index": 0 }], []] }
+      "Alert schedule": { "main": [[{ "node": "Check status", "type": "main", "index": 0 }]] },
+      "Check status": { "main": [[{ "node": "Evaluate status", "type": "main", "index": 0 }]] },
+      "Evaluate status": { "main": [[{ "node": "Send alert", "type": "main", "index": 0 }]] }
     },
     "settings": { "executionOrder": "v1" }
   },
