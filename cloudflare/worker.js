@@ -61,6 +61,7 @@ async function handleTrigger(request, env) {
         Authorization: `Bearer ${env.GITHUB_PAT}`,
         Accept: "application/vnd.github+json",
         "Content-Type": "application/json",
+        "User-Agent": "GamersLab-Monitor/1.0",
         "X-GitHub-Api-Version": "2022-11-28",
       },
       body: JSON.stringify({ ref: "main", inputs: { mode, regions } }),
@@ -71,22 +72,19 @@ async function handleTrigger(request, env) {
   return err(`GitHub dispatch failed: ${await ghRes.text()}`, ghRes.status);
 }
 
-// ── Schedule update — patches the n8n workflow Schedule Trigger interval ─────
+// ── Schedule update ───────────────────────────────────────────────────────────
 async function handleSchedule(request, env) {
   if (!env.N8N_API_KEY) return err("N8N_API_KEY not configured");
 
   const body = await request.json().catch(() => ({}));
   const intervalMinutes = parseInt(body.intervalMinutes) || 5;
 
-  // Fetch current workflow
   const getRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
     headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
   });
   if (!getRes.ok) return err(`Failed to fetch workflow: ${await getRes.text()}`, getRes.status);
 
   const workflow = await getRes.json();
-
-  // Patch the Schedule Trigger node interval
   workflow.nodes = workflow.nodes.map(node => {
     if (node.type === "n8n-nodes-base.scheduleTrigger" && node.name === "Schedule Trigger") {
       node.parameters.rule.interval = [{ field: "minutes", minutesInterval: intervalMinutes }];
@@ -94,7 +92,6 @@ async function handleSchedule(request, env) {
     return node;
   });
 
-  // Update workflow
   const putRes = await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}`, {
     method: "PUT",
     headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
@@ -119,7 +116,7 @@ async function handleWorkflowActivate(request, env, activate) {
   return json({ active: activate });
 }
 
-// ── Get workflow status ───────────────────────────────────────────────────────
+// ── Workflow status ───────────────────────────────────────────────────────────
 async function handleWorkflowStatus(env) {
   if (!env.N8N_API_KEY) return err("N8N_API_KEY not configured");
 
