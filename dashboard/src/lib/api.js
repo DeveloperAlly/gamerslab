@@ -71,7 +71,16 @@ export const api = {
 
   // ── Referrers ──────────────────────────────────────────────────────────────
   referrers() {
+    // distinct on url to prevent showing duplicates from multiple seed runs
     return sbFetch(`/rest/v1/referrers?select=id,url,name,enabled&order=created_at.asc`)
+      .then(rows => {
+        const seen = new Set()
+        return rows.filter(r => {
+          if (seen.has(r.url)) return false
+          seen.add(r.url)
+          return true
+        })
+      })
   },
 
   addReferrer(url, name) {
@@ -105,13 +114,17 @@ export const api = {
         rows.forEach(r => { map[r.key] = r.value })
         return map
       })
+      .catch(() => ({}))
   },
 
+  // UPSERT: works whether the row exists or not, and whether the table
+  // was just created or pre-existing. PATCH on 0 matching rows returns 204
+  // with no body which looks like success but writes nothing.
   setConfig(key, value) {
-    return sbFetch(`/rest/v1/monitor_config?key=eq.${key}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ value: String(value), updated_at: new Date().toISOString() }),
-      headers: { Prefer: 'return=minimal' },
+    return sbFetch(`/rest/v1/monitor_config`, {
+      method: 'POST',
+      body: JSON.stringify({ key, value: String(value), updated_at: new Date().toISOString() }),
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
     })
   },
 
