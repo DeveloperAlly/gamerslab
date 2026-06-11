@@ -1,14 +1,9 @@
 name: VPN Geo Test
 
 # Manual trigger only — does NOT affect monitor.yml
-#
-# Tests every WireGuard config in /proton/ to verify:
-#   1. wg-quick connects successfully on ubuntu-latest
-#   2. The outbound IP country matches the config filename country code
-#
-# Single job — tests all configs sequentially, one at a time.
-# Reports pass/fail per config and a final summary.
-# Adding new configs to /proton/ requires no workflow changes.
+# Tests every WireGuard config in /proton/ sequentially
+# Uses multiple IP check services with fallback to avoid rate limiting
+# Adds delay between checks to prevent 429s
 
 on:
   workflow_dispatch:
@@ -26,37 +21,64 @@ jobs:
 
       - name: Test all configs
         run: |
-          set +e  # don't exit on first failure — test everything
+          set +e
 
           PASS=0
           FAIL=0
           RESULTS=""
 
+          # Get country from IP using multiple services with fallback
+          get_country() {
+            local IP="$1"
+            local COUNTRY=""
+
+            # Try ipapi.co first (no key needed, generous limit)
+            COUNTRY=$(curl -s --max-time 8 "https://ipapi.co/${IP}/country/" 2>/dev/null | tr -d '[:space:]')
+            if [[ ${#COUNTRY} -eq 2 && "$COUNTRY" =~ ^[A-Z]{2}$ ]]; then
+              echo "$COUNTRY"
+              return
+            fi
+
+            # Fallback: ip-api.com (no key, 45 req/min free)
+            COUNTRY=$(curl -s --max-time 8 "http://ip-api.com/line/${IP}?fields=countryCode" 2>/dev/null | tr -d '[:space:]')
+            if [[ ${#COUNTRY} -eq 2 && "$COUNTRY" =~ ^[A-Z]{2}$ ]]; then
+              echo "$COUNTRY"
+              return
+            fi
+
+            # Fallback: ipwho.is
+            COUNTRY=$(curl -s --max-time 8 "https://ipwho.is/${IP}" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('country_code',''))" 2>/dev/null | tr -d '[:space:]')
+            if [[ ${#COUNTRY} -eq 2 && "$COUNTRY" =~ ^[A-Z]{2}$ ]]; then
+              echo "$COUNTRY"
+              return
+            fi
+
+            echo "UNKNOWN"
+          }
+
           for CONF in proton/wg-*.conf; do
-            # Skip files with spaces in name (e.g. "wg-SG-FREE-21 (1).conf")
-            # wg-quick can't handle spaces in interface names
             BASENAME=$(basename "$CONF")
+
+            # Skip files with spaces in name
             if [[ "$BASENAME" == *" "* ]]; then
-              echo "⚠️  SKIP $BASENAME — filename contains spaces, rename to use it"
+              echo "⚠️  SKIP $BASENAME — filename contains spaces"
               RESULTS="$RESULTS\n⚠️  SKIP: $BASENAME (spaces in filename)"
               continue
             fi
 
-            # Extract country code from filename: wg-XX-FREE-N.conf → XX
+            # Extract country code: wg-XX-FREE-N.conf → XX
             COUNTRY=$(echo "$BASENAME" | sed 's/wg-\([A-Z]*\)-.*/\1/')
 
             echo ""
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "Testing: $BASENAME (expected country: $COUNTRY)"
+            echo "Testing: $BASENAME (expected: $COUNTRY)"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-            # Copy config
             sudo cp "$CONF" /etc/wireguard/wg0.conf
 
-            # Connect
             sudo wg-quick up wg0 2>&1
             if [ $? -ne 0 ]; then
-              echo "❌ FAIL — wg-quick up failed for $BASENAME"
+              echo "❌ FAIL — wg-quick up failed"
               RESULTS="$RESULTS\n❌ FAIL (connect error): $BASENAME"
               FAIL=$((FAIL + 1))
               sudo wg-quick down wg0 2>/dev/null || true
@@ -66,9 +88,14 @@ jobs:
 
             sleep 3
 
-            # Check IP
-            ACTUAL_COUNTRY=$(curl -s --max-time 10 https://ipinfo.io/country | tr -d '[:space:]')
-            ACTUAL_IP=$(curl -s --max-time 10 https://ipinfo.io/ip | tr -d '[:space:]')
+            # Get the outbound IP
+            ACTUAL_IP=$(curl -s --max-time 8 https://ipapi.co/ip/ 2>/dev/null | tr -d '[:space:]')
+            if [[ -z "$ACTUAL_IP" ]]; then
+              ACTUAL_IP=$(curl -s --max-time 8 https://api.ipify.org 2>/dev/null | tr -d '[:space:]')
+            fi
+
+            # Get country from IP
+            ACTUAL_COUNTRY=$(get_country "$ACTUAL_IP")
 
             echo "IP: $ACTUAL_IP | Country: $ACTUAL_COUNTRY"
 
@@ -77,15 +104,16 @@ jobs:
               RESULTS="$RESULTS\n✅ PASS: $BASENAME → $ACTUAL_IP ($ACTUAL_COUNTRY)"
               PASS=$((PASS + 1))
             else
-              echo "❌ FAIL — $BASENAME expected $COUNTRY, got $ACTUAL_COUNTRY ($ACTUAL_IP)"
+              echo "❌ FAIL — expected $COUNTRY, got $ACTUAL_COUNTRY ($ACTUAL_IP)"
               RESULTS="$RESULTS\n❌ FAIL: $BASENAME expected $COUNTRY, got $ACTUAL_COUNTRY ($ACTUAL_IP)"
               FAIL=$((FAIL + 1))
             fi
 
-            # Disconnect and clean up before next config
             sudo wg-quick down wg0 2>&1 || true
             sudo rm -f /etc/wireguard/wg0.conf
-            sleep 2
+
+            # Wait between checks to avoid rate limiting
+            sleep 4
           done
 
           echo ""
@@ -95,12 +123,11 @@ jobs:
           echo -e "$RESULTS"
           echo ""
           echo "Passed: $PASS | Failed: $FAIL"
-          echo ""
 
           if [ $FAIL -eq 0 ]; then
-            echo "✅ ALL CONFIGS VERIFIED — safe to rebuild monitor.yml with ProtonVPN WireGuard"
+            echo "✅ ALL CONFIGS VERIFIED — safe to rebuild monitor.yml"
             exit 0
           else
-            echo "❌ $FAIL CONFIG(S) FAILED — check results above before rebuilding monitor.yml"
+            echo "❌ $FAIL CONFIG(S) FAILED"
             exit 1
           fi
