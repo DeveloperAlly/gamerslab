@@ -37,12 +37,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install Playwright
         run: |
@@ -51,7 +51,6 @@ jobs:
           npx playwright install chromium --with-deps
 
       - name: Run Playwright monitor
-        id: playwright
         env:
           REGION: ${{ matrix.region }}
           MODE: ${{ github.event.inputs.mode || 'standard' }}
@@ -90,7 +89,6 @@ jobs:
             "runner_ip":            runner_ip,
             "mode":                 os.environ.get('MODE', 'standard'),
             "checked_at":           time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            # Playwright-specific fields
             "page_title":           data.get('page_title'),
             "game_iframe_loaded":   data.get('game_iframe_loaded'),
             "js_errors":            json.dumps(data.get('js_errors', [])),
@@ -113,7 +111,6 @@ jobs:
           print(f"Pushed: region={os.environ['REGION']} ok={data.get('ok')} ttfb={data.get('ttfb_ms')}ms title={data.get('page_title')} iframe={data.get('game_iframe_loaded')} js_errors={len(data.get('js_errors', []))}")
           EOF
 
-      # Surge: fire 19 additional parallel lightweight checks after the main Playwright run
       - name: Surge parallel checks
         if: ${{ github.event.inputs.mode == 'surge' }}
         env:
