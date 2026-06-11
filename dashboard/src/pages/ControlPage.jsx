@@ -72,7 +72,6 @@ const INTERVAL_OPTIONS = [
   { label: 'Every hour', value: 60 },
 ]
 
-// Default datetime input to now + 1 hour, rounded to nearest 15min
 function defaultScheduledAt() {
   const d = new Date(Date.now() + 3600 * 1000)
   d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0)
@@ -92,18 +91,22 @@ export default function ControlPage() {
   const [notifyEveryRun, setNotifyEveryRun] = useState(false)
   const [notifySurge, setNotifySurge] = useState(true)
 
-  // Standard schedule (Workflow A)
   const [workflowActive, setWorkflowActive] = useState(null)
   const [intervalMinutes, setIntervalMinutes] = useState(5)
   const [scheduleLoading, setScheduleLoading] = useState(true)
   const [scheduleStatus, setScheduleStatus] = useState(null)
   const [toggleLoading, setToggleLoading] = useState(false)
 
-  // Surge scheduler (Workflow F/G)
   const [scheduledSurges, setScheduledSurges] = useState([])
   const [newSurgeAt, setNewSurgeAt] = useState(defaultScheduledAt())
   const [newSurgeLabel, setNewSurgeLabel] = useState('')
   const [surgeScheduleStatus, setSurgeScheduleStatus] = useState(null)
+
+  // Referrers state
+  const [referrers, setReferrers] = useState([])
+  const [newRefUrl, setNewRefUrl] = useState('')
+  const [newRefName, setNewRefName] = useState('')
+  const [referrerStatus, setReferrerStatus] = useState(null)
 
   useEffect(() => {
     api.activeTarget().then(t => { setActiveTarget(t); setTargetUrl(t?.url || ''); setTargetName(t?.name || '') }).catch(() => {})
@@ -113,6 +116,7 @@ export default function ControlPage() {
       .catch(() => setWorkflowActive(null))
       .finally(() => setScheduleLoading(false))
     api.scheduledSurges().then(setScheduledSurges).catch(() => {})
+    api.referrers().then(setReferrers).catch(() => {})
   }, [])
 
   async function runStandard() {
@@ -154,16 +158,13 @@ export default function ControlPage() {
       setSurgeScheduleStatus({ type: 'success', msg: `Surge scheduled for ${new Date(newSurgeAt).toLocaleString()}` })
       setNewSurgeAt(defaultScheduledAt())
       setNewSurgeLabel('')
-      const updated = await api.scheduledSurges()
-      setScheduledSurges(updated)
+      api.scheduledSurges().then(setScheduledSurges)
     } catch (e) { setSurgeScheduleStatus({ type: 'error', msg: e.message }) }
   }
 
   async function cancelSurge(id) {
-    try {
-      await api.cancelSurge(id)
-      setScheduledSurges(prev => prev.filter(s => s.id !== id))
-    } catch (e) { console.error(e) }
+    try { await api.cancelSurge(id); setScheduledSurges(prev => prev.filter(s => s.id !== id)) }
+    catch (e) { console.error(e) }
   }
 
   async function updateTarget() {
@@ -175,6 +176,32 @@ export default function ControlPage() {
       setActiveTarget({ url: targetUrl.trim(), name: targetName.trim() || targetUrl.trim() })
       api.targets().then(setSavedTargets)
     } catch (e) { setTargetStatus({ type: 'error', msg: e.message }) }
+  }
+
+  async function addReferrer() {
+    if (!newRefUrl.trim()) return
+    setReferrerStatus({ type: 'loading', msg: 'Adding referrer…' })
+    try {
+      await api.addReferrer(newRefUrl.trim(), newRefName.trim() || newRefUrl.trim())
+      setReferrerStatus({ type: 'success', msg: 'Referrer added' })
+      setNewRefUrl('')
+      setNewRefName('')
+      api.referrers().then(setReferrers)
+    } catch (e) { setReferrerStatus({ type: 'error', msg: e.message }) }
+  }
+
+  async function toggleReferrer(id, enabled) {
+    try {
+      await api.toggleReferrer(id, enabled)
+      setReferrers(prev => prev.map(r => r.id === id ? { ...r, enabled } : r))
+    } catch (e) { console.error(e) }
+  }
+
+  async function deleteReferrer(id) {
+    try {
+      await api.deleteReferrer(id)
+      setReferrers(prev => prev.filter(r => r.id !== id))
+    } catch (e) { console.error(e) }
   }
 
   async function testDiscord() {
@@ -197,7 +224,7 @@ export default function ControlPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500 }}>Standard check</div>
-              <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 2 }}>1 request per region · 6 runners in parallel</div>
+              <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 2 }}>1 browser visit per region · 6 runners in parallel</div>
             </div>
             <Btn onClick={runStandard}>Run now</Btn>
           </div>
@@ -206,7 +233,7 @@ export default function ControlPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 500 }}>Surge test</div>
-              <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 2 }}>20 concurrent requests per region · simulates campaign spike</div>
+              <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 2 }}>20 concurrent browser visits per region · simulates campaign spike</div>
             </div>
             <Btn onClick={runSurge} variant="surge">Trigger surge</Btn>
           </div>
@@ -240,53 +267,39 @@ export default function ControlPage() {
         <Card>
           <Label>surge event scheduler</Label>
           <div style={{ background: 'var(--s2)', border: '0.5px solid var(--b1)', borderRadius: 7, padding: '12px', marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8 }}>Schedule a surge event</div>
-            <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 10 }}>
-              Schedule up to 15 surge tests at exact dates/times — use when itch.io traffic is already high to test under real load conditions.
-            </div>
+            <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 6 }}>Schedule a surge event</div>
+            <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 10 }}>Schedule up to 15 surge tests at exact dates/times — ideal when itch.io traffic is already high.</div>
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 4 }}>Label</div>
               <Input value={newSurgeLabel} onChange={e => setNewSurgeLabel(e.target.value)} placeholder="e.g. itch.io new release day" />
             </div>
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 4 }}>Date & time (local)</div>
-              <input
-                type="datetime-local"
-                value={newSurgeAt}
-                onChange={e => setNewSurgeAt(e.target.value)}
+              <input type="datetime-local" value={newSurgeAt} onChange={e => setNewSurgeAt(e.target.value)}
                 min={new Date(Date.now() + 60000).toISOString().slice(0,16)}
                 max={new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString().slice(0,16)}
-                style={{ ...SEL, colorScheme: 'dark' }}
-              />
-              <div style={{ fontSize: 10, color: 'var(--hi)', marginTop: 4, fontFamily: 'var(--mono)' }}>up to 15 days in advance · n8n checks every minute</div>
+                style={{ ...SEL, colorScheme: 'dark' }} />
+              <div style={{ fontSize: 10, color: 'var(--hi)', marginTop: 4, fontFamily: 'var(--mono)' }}>up to 15 days ahead · n8n fires within 1 minute of scheduled time</div>
             </div>
             <Btn onClick={scheduleSurge} variant="surge" fullWidth>Schedule surge</Btn>
           </div>
           <Status status={surgeScheduleStatus} />
-
-          {/* upcoming events list */}
           {scheduledSurges.length > 0 && (
             <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '.06em', fontFamily: 'var(--mono)', marginBottom: 8 }}>
-                upcoming — {scheduledSurges.length}/15
-              </div>
+              <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '.06em', fontFamily: 'var(--mono)', marginBottom: 8 }}>upcoming — {scheduledSurges.length}/15</div>
               {scheduledSurges.map(s => (
                 <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '0.5px solid var(--b1)' }}>
                   <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--amber)', flexShrink: 0, animation: 'pulse 2s infinite' }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>
-                    <div style={{ fontSize: 10, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>
-                      {new Date(s.scheduled_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>{new Date(s.scheduled_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
                   </div>
                   <Btn onClick={() => cancelSurge(s.id)} variant="danger" style={{ fontSize: 10, padding: '3px 8px' }}>Cancel</Btn>
                 </div>
               ))}
             </div>
           )}
-          {scheduledSurges.length === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--hi)', fontFamily: 'var(--mono)', padding: '8px 0' }}>No surge events scheduled</div>
-          )}
+          {scheduledSurges.length === 0 && <div style={{ fontSize: 11, color: 'var(--hi)', fontFamily: 'var(--mono)', padding: '8px 0' }}>No surge events scheduled</div>}
         </Card>
       </div>
 
@@ -335,6 +348,44 @@ export default function ControlPage() {
               ))}
             </>
           )}
+        </Card>
+
+        {/* Referrers */}
+        <Card>
+          <Label>referrer simulation</Label>
+          <div style={{ fontSize: 11, color: 'var(--mu)', marginBottom: 12, lineHeight: 1.5 }}>
+            Each browser visit navigates to one of these pages first, dwells 2–4s, then navigates to the target — setting a realistic Referer header. Pulled live from Supabase by the GitHub Action runner.
+          </div>
+
+          {/* existing referrers */}
+          {referrers.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              {referrers.map(r => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '0.5px solid var(--b1)' }}>
+                  <Toggle on={r.enabled} onChange={v => toggleReferrer(r.id, v)} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: r.enabled ? 'var(--tx)' : 'var(--mu)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                    <div style={{ fontSize: 9, color: 'var(--hi)', fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.url}</div>
+                  </div>
+                  <button onClick={() => deleteReferrer(r.id)}
+                    style={{ fontSize: 10, color: 'var(--hi)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {referrers.length === 0 && (
+            <div style={{ fontSize: 11, color: 'var(--hi)', fontFamily: 'var(--mono)', marginBottom: 10 }}>No referrers — visits will navigate directly to target</div>
+          )}
+
+          {/* add new referrer */}
+          <Divider />
+          <div style={{ fontSize: 10, color: 'var(--mu)', marginBottom: 8 }}>Add referrer</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+            <Input value={newRefName} onChange={e => setNewRefName(e.target.value)} placeholder="Display name (e.g. BugnSeek)" />
+            <Input value={newRefUrl} onChange={e => setNewRefUrl(e.target.value)} placeholder="https://www.bugnseek.com/" />
+          </div>
+          <Btn onClick={addReferrer} variant="primary" fullWidth disabled={!newRefUrl.trim()}>Add referrer</Btn>
+          <Status status={referrerStatus} />
         </Card>
 
         {/* Discord */}
