@@ -1,7 +1,6 @@
 const SB_URL = import.meta.env.VITE_SUPABASE_URL
 const SB_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 const WORKER_URL = import.meta.env.VITE_WORKER_URL
-const N8N_URL = 'https://n8n-j39n.sliplane.app'
 
 // ── Supabase paginated GET ────────────────────────────────────────────────────
 // Supabase REST API silently caps at 1000 rows per request regardless of ?limit=
@@ -202,15 +201,9 @@ export const api = {
     })
   },
 
+  // Routes through Cloudflare Worker to avoid CORS — n8n does not send CORS headers
   scheduleSurge(scheduledAt, label) {
-    return fetch(`${N8N_URL}/webhook/schedule-surge`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scheduledAt, label }),
-    }).then(async res => {
-      if (!res.ok) throw new Error(`Schedule failed: ${await res.text()}`)
-      return res.json()
-    })
+    return workerFetch('/api/schedule-surge', { body: { scheduledAt, label } })
   },
 
   // ── Worker — triggers + n8n control ─────────────────────────────────────────
