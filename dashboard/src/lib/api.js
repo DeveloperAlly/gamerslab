@@ -3,8 +3,6 @@ const SB_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 const WORKER_URL = import.meta.env.VITE_WORKER_URL
 
 // ── Supabase paginated GET ────────────────────────────────────────────────────
-// Supabase REST API silently caps at 1000 rows per request regardless of ?limit=
-// This fetches all pages and concatenates results.
 async function sbGetAll(path) {
   const PAGE = 1000
   let offset = 0
@@ -19,7 +17,6 @@ async function sbGetAll(path) {
         Range: `${offset}-${offset + PAGE - 1}`,
       },
     })
-    // 416 = Range Not Satisfiable = no more rows
     if (res.status === 416) break
     if (!res.ok) {
       const text = await res.text()
@@ -28,20 +25,24 @@ async function sbGetAll(path) {
     const text = await res.text()
     const rows = text ? JSON.parse(text) : []
     all = all.concat(rows)
-    if (rows.length < PAGE) break  // last page
+    if (rows.length < PAGE) break
     offset += PAGE
   }
   return all
 }
 
-// ── Supabase single-result or write fetch ─────────────────────────────────────
+// ── Supabase single fetch (small result sets) ─────────────────────────────────
+// Always sends Range header — Supabase returns empty body without it
 async function sbFetch(path, opts = {}) {
+  const isGet = !opts.method || opts.method === 'GET'
   const res = await fetch(`${SB_URL}${path}`, {
     method: opts.method || 'GET',
     headers: {
       apikey: SB_KEY,
       Authorization: `Bearer ${SB_KEY}`,
       'Content-Type': 'application/json',
+      // Range header required on all GETs — Supabase returns empty body without it
+      ...(isGet ? { 'Range-Unit': 'items', Range: '0-999' } : {}),
       ...(opts.headers || {}),
     },
     body: opts.body,
@@ -69,7 +70,6 @@ async function workerFetch(path, opts = {}) {
 
 export const api = {
   // ── Monitor results (windowed, for charts + live feed) ────────────────────
-  // Paginates automatically — returns ALL rows in the time window, no cap
   results(hours = 24) {
     const since = new Date(Date.now() - hours * 3600 * 1000).toISOString()
     return sbGetAll(
@@ -79,8 +79,7 @@ export const api = {
     )
   },
 
-  // ── All-time aggregate stats (for top stat cards) ─────────────────────────
-  // Uses count=exact — returns real totals without fetching any rows
+  // ── All-time aggregate stats ──────────────────────────────────────────────
   async allTimeStats() {
     const [totalRes, okRes, surgeRes] = await Promise.all([
       fetch(`${SB_URL}/rest/v1/monitor_results?select=id`, {
@@ -110,7 +109,7 @@ export const api = {
     return { total, ok, failed: total - ok, surgeTotal }
   },
 
-  // ── Targets ──────────────────────────────────────────────────────────────────
+  // ── Targets ───────────────────────────────────────────────────────────────
   activeTarget() {
     return sbFetch(`/rest/v1/targets?active=eq.true&order=set_at.desc&limit=1`)
       .then(rows => rows[0] || null)
@@ -133,7 +132,7 @@ export const api = {
     })
   },
 
-  // ── Referrers ──────────────────────────────────────────────────────────────
+  // ── Referrers ─────────────────────────────────────────────────────────────
   referrers() {
     return sbFetch(`/rest/v1/referrers?select=id,url,name,enabled&order=created_at.asc`)
       .then(rows => {
@@ -169,7 +168,7 @@ export const api = {
     })
   },
 
-  // ── Monitor config ─────────────────────────────────────────────────────────
+  // ── Monitor config ────────────────────────────────────────────────────────
   getConfig() {
     return sbFetch(`/rest/v1/monitor_config?select=key,value`)
       .then(rows => {
@@ -188,7 +187,7 @@ export const api = {
     })
   },
 
-  // ── Scheduled surges ─────────────────────────────────────────────────────────
+  // ── Scheduled surges ──────────────────────────────────────────────────────
   scheduledSurges() {
     return sbFetch(`/rest/v1/scheduled_surges?select=id,scheduled_at,label,status,fired_at&status=eq.pending&order=scheduled_at.asc&limit=15`)
   },
@@ -206,7 +205,7 @@ export const api = {
     return workerFetch('/api/schedule-surge', { body: { scheduledAt, label } })
   },
 
-  // ── Worker — triggers + n8n control ─────────────────────────────────────────
+  // ── Worker — triggers + n8n control ──────────────────────────────────────
   trigger(mode, regions) {
     return workerFetch('/api/trigger', { body: { mode, regions } })
   },
