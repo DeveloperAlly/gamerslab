@@ -34,6 +34,9 @@ export default {
     if (url.pathname === "/api/schedule" && request.method === "POST")
       return handleSchedule(request, env);
 
+    if (url.pathname === "/api/schedule-surge" && request.method === "POST")
+      return handleScheduleSurge(request, env);
+
     if (url.pathname === "/api/workflow/activate" && request.method === "POST")
       return handleWorkflowActivate(request, env, true);
 
@@ -72,6 +75,23 @@ async function handleTrigger(request, env) {
   return err(`GitHub dispatch failed: ${await ghRes.text()}`, ghRes.status);
 }
 
+// ── Schedule a one-off surge event via n8n webhook ───────────────────────────
+async function handleScheduleSurge(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const { scheduledAt, label } = body;
+  if (!scheduledAt) return err("scheduledAt is required");
+
+  const n8nRes = await fetch(`${N8N_URL}/webhook/schedule-surge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scheduledAt, label: label || "Scheduled surge" }),
+  });
+
+  if (!n8nRes.ok) return err(`n8n webhook failed: ${await n8nRes.text()}`, n8nRes.status);
+  const data = await n8nRes.json().catch(() => ({ scheduled: true }));
+  return json(data);
+}
+
 // ── Schedule update ───────────────────────────────────────────────────────────
 async function handleSchedule(request, env) {
   if (!env.N8N_API_KEY) return err("N8N_API_KEY not configured");
@@ -86,7 +106,6 @@ async function handleSchedule(request, env) {
 
   const wf = await getRes.json();
 
-  // Patch the Schedule Trigger node only
   const nodes = wf.nodes.map(node => {
     if (node.type === "n8n-nodes-base.scheduleTrigger" && node.name === "Schedule Trigger") {
       return {
@@ -100,9 +119,6 @@ async function handleSchedule(request, env) {
     return node;
   });
 
-  // n8n PUT /api/v1/workflows/:id only accepts these top-level fields.
-  // settings only accepts: executionOrder, timezone, saveManualExecutions,
-  // callerPolicy, errorWorkflow, executionTimeout — strip everything else.
   const { executionOrder, timezone, saveManualExecutions, callerPolicy, errorWorkflow, executionTimeout } = wf.settings || {};
   const cleanSettings = {};
   if (executionOrder)        cleanSettings.executionOrder = executionOrder;
@@ -128,7 +144,6 @@ async function handleSchedule(request, env) {
 
   if (!putRes.ok) return err(`Failed to update workflow: ${await putRes.text()}`, putRes.status);
 
-  // Re-activate so the new schedule takes effect immediately
   await fetch(`${N8N_URL}/api/v1/workflows/${N8N_WORKFLOW_ID}/activate`, {
     method: "POST",
     headers: { "X-N8N-API-KEY": env.N8N_API_KEY, "Content-Type": "application/json" },
