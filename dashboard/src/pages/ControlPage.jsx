@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 
 function Label({ children }) {
@@ -78,6 +78,19 @@ function defaultScheduledAt() {
   return d.toISOString().slice(0, 16)
 }
 
+function formatSurgeTime(isoString) {
+  const d = new Date(isoString)
+  const now = new Date()
+  const diffMs = d - now
+  const diffMins = Math.round(diffMs / 60000)
+  const timeStr = d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  if (diffMins < 0) return `${timeStr} · fired`
+  if (diffMins < 60) return `${timeStr} · in ${diffMins}m`
+  const diffHrs = Math.round(diffMins / 60)
+  if (diffHrs < 24) return `${timeStr} · in ${diffHrs}h`
+  return `${timeStr} · in ${Math.round(diffHrs / 24)}d`
+}
+
 export default function ControlPage() {
   const [triggerStatus, setTriggerStatus] = useState(null)
   const [surgeStatus, setSurgeStatus] = useState(null)
@@ -97,7 +110,6 @@ export default function ControlPage() {
   const [scheduleStatus, setScheduleStatus] = useState(null)
   const [toggleLoading, setToggleLoading] = useState(false)
 
-  // Click-check config
   const [clickCheckPct, setClickCheckPct] = useState(30)
   const [clickCheckStatus, setClickCheckStatus] = useState(null)
 
@@ -111,6 +123,10 @@ export default function ControlPage() {
   const [newRefName, setNewRefName] = useState('')
   const [referrerStatus, setReferrerStatus] = useState(null)
 
+  const refreshSurges = useCallback(() => {
+    api.scheduledSurges().then(setScheduledSurges).catch(() => {})
+  }, [])
+
   useEffect(() => {
     api.activeTarget().then(t => { setActiveTarget(t); setTargetUrl(t?.url || ''); setTargetName(t?.name || '') }).catch(() => {})
     api.targets().then(setSavedTargets).catch(() => {})
@@ -118,12 +134,16 @@ export default function ControlPage() {
       .then(s => { setWorkflowActive(s.active); setIntervalMinutes(s.intervalMinutes || 5) })
       .catch(() => setWorkflowActive(null))
       .finally(() => setScheduleLoading(false))
-    api.scheduledSurges().then(setScheduledSurges).catch(() => {})
+    refreshSurges()
     api.referrers().then(setReferrers).catch(() => {})
     api.getConfig().then(cfg => {
       if (cfg.click_check_percentage) setClickCheckPct(parseInt(cfg.click_check_percentage))
     }).catch(() => {})
-  }, [])
+
+    // Auto-refresh scheduled surges every 30s so fired/cancelled events disappear
+    const t = setInterval(refreshSurges, 30_000)
+    return () => clearInterval(t)
+  }, [refreshSurges])
 
   async function runStandard() {
     setTriggerStatus({ type: 'loading', msg: 'Dispatching standard check…' })
@@ -168,17 +188,31 @@ export default function ControlPage() {
     setSurgeScheduleStatus({ type: 'loading', msg: 'Scheduling surge event…' })
     try {
       const iso = new Date(newSurgeAt).toISOString()
-      await api.scheduleSurge(iso, newSurgeLabel || 'Scheduled surge')
+      const label = newSurgeLabel || 'Scheduled surge'
+      await api.scheduleSurge(iso, label)
+
+      // Optimistically add to list immediately — don't wait for re-fetch
+      setScheduledSurges(prev => [...prev, {
+        id: `pending-${Date.now()}`,
+        scheduled_at: iso,
+        label,
+        status: 'pending',
+      }].sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)))
+
       setSurgeScheduleStatus({ type: 'success', msg: `Surge scheduled for ${new Date(newSurgeAt).toLocaleString()}` })
       setNewSurgeAt(defaultScheduledAt())
       setNewSurgeLabel('')
-      api.scheduledSurges().then(setScheduledSurges)
+
+      // Then re-fetch to get real IDs from DB
+      setTimeout(refreshSurges, 1500)
     } catch (e) { setSurgeScheduleStatus({ type: 'error', msg: e.message }) }
   }
 
   async function cancelSurge(id) {
-    try { await api.cancelSurge(id); setScheduledSurges(prev => prev.filter(s => s.id !== id)) }
-    catch (e) { console.error(e) }
+    // Optimistically remove from list
+    setScheduledSurges(prev => prev.filter(s => s.id !== id))
+    try { await api.cancelSurge(id) }
+    catch (e) { console.error(e); refreshSurges() } // re-fetch on error
   }
 
   async function updateTarget() {
@@ -323,22 +357,37 @@ export default function ControlPage() {
             <Btn onClick={scheduleSurge} variant="surge" fullWidth>Schedule surge</Btn>
           </div>
           <Status status={surgeScheduleStatus} />
-          {scheduledSurges.length > 0 && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '.06em', fontFamily: 'var(--mono)', marginBottom: 8 }}>upcoming — {scheduledSurges.length}/15</div>
-              {scheduledSurges.map(s => (
-                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '0.5px solid var(--b1)' }}>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--amber)', flexShrink: 0, animation: 'pulse 2s infinite' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>
-                    <div style={{ fontSize: 10, color: 'var(--mu)', fontFamily: 'var(--mono)' }}>{new Date(s.scheduled_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+
+          {/* Scheduled surges list */}
+          <div style={{ marginTop: 10 }}>
+            {scheduledSurges.length > 0 ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '.06em', fontFamily: 'var(--mono)' }}>
+                    scheduled — {scheduledSurges.length}/15
                   </div>
-                  <Btn onClick={() => cancelSurge(s.id)} variant="danger" style={{ fontSize: 10, padding: '3px 8px' }}>Cancel</Btn>
+                  <button onClick={refreshSurges} style={{ fontSize: 9, color: 'var(--hi)', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'var(--mono)' }}>↻ refresh</button>
                 </div>
-              ))}
-            </div>
-          )}
-          {scheduledSurges.length === 0 && <div style={{ fontSize: 11, color: 'var(--hi)', fontFamily: 'var(--mono)', padding: '8px 0' }}>No surge events scheduled</div>}
+                {scheduledSurges.map(s => {
+                  const isPast = new Date(s.scheduled_at) < new Date()
+                  return (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '0.5px solid var(--b1)' }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: isPast ? 'var(--hi)' : 'var(--amber)', flexShrink: 0, animation: isPast ? 'none' : 'pulse 2s infinite' }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</div>
+                        <div style={{ fontSize: 10, color: isPast ? 'var(--hi)' : 'var(--mu)', fontFamily: 'var(--mono)' }}>
+                          {formatSurgeTime(s.scheduled_at)}
+                        </div>
+                      </div>
+                      <Btn onClick={() => cancelSurge(s.id)} variant="danger" style={{ fontSize: 10, padding: '3px 8px' }}>Cancel</Btn>
+                    </div>
+                  )
+                })}
+              </>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--hi)', fontFamily: 'var(--mono)', padding: '4px 0' }}>No surge events scheduled</div>
+            )}
+          </div>
         </Card>
       </div>
 
