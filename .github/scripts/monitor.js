@@ -7,13 +7,11 @@
  * - Login confirmation via URL change, DOM elements, iframe, or text
  *
  * DWELL CHECK (post-click):
- * - After login page confirmed, stays on page for dwell_check_seconds_min
- *   to dwell_check_seconds_max seconds (random, configurable)
- * - Capped at DWELL_MAX_SECONDS (120s) to prevent GitHub Actions job timeout
+ * - After login page confirmed (or click attempted), stays on page for
+ *   dwell_check_seconds_min to dwell_check_seconds_max seconds (random, configurable)
  * - Monitors continuously for: page crashes, JS errors, console errors,
  *   navigation away from expected domain, blank/white page
  * - Reports all errors found during dwell period
- * - Records dwell_crash (bool) and dwell_errors (JSON array) in result
  *
  * JS ERROR HANDLING:
  * - Known itch.io noise errors are filtered before counting
@@ -30,26 +28,21 @@ const SUPABASE_KEY    = process.env.SUPABASE_KEY;
 const FALLBACK_TARGET = process.env.TARGET_URL   || 'https://uprisinglabs.itch.io/bug-seek-expedition-edition';
 const TIMEOUT         = 35000; // raised from 25s — VPN adds latency
 
-// Hard cap on dwell to prevent job timeout cancellations.
-// GitHub job timeout is 15min; install+VPN+Playwright takes ~5min,
-// leaving ~10min. 120s dwell gives comfortable headroom.
-const DWELL_MAX_SECONDS = 120;
-
 // Number of genuine JS errors required to mark ok:false
 // Raised from 3 to 5 — itch.io consistently generates 1-3 noise errors
 const JS_ERROR_THRESHOLD = 5;
 
 // Known itch.io noise errors to filter — not indicative of game health
 const JS_ERROR_NOISE_PATTERNS = [
-  'Error parsing menu buttons JSON',   // broken itch.io store API response
-  'SyntaxError: Unexpected end of JSON', // same, different form
-  'CreateInstallStoreIcons',            // itch.io store icon loading
-  'ERR_NAME_NOT_RESOLVED',              // DNS for external assets (fonts, analytics)
-  'ERR_CONNECTION_RESET',               // transient network resets from VPN
-  'favicon',                            // favicon load failures
-  'googletagmanager',                   // analytics
-  'google-analytics',                   // analytics
-  'doubleclick',                        // ads
+  'Error parsing menu buttons JSON',
+  'SyntaxError: Unexpected end of JSON',
+  'CreateInstallStoreIcons',
+  'ERR_NAME_NOT_RESOLVED',
+  'ERR_CONNECTION_RESET',
+  'favicon',
+  'googletagmanager',
+  'google-analytics',
+  'doubleclick',
 ];
 
 const ACCEPT_LANGUAGE = {
@@ -119,7 +112,6 @@ function isNoiseError(errorText) {
 }
 
 // ── Supabase helpers ──────────────────────────────────────────────────────────
-
 function sbGet(path) {
   return new Promise((resolve) => {
     if (!SUPABASE_URL || !SUPABASE_KEY) return resolve(null);
@@ -158,23 +150,22 @@ async function fetchConfig() {
   const clickCheckPct      = parseInt(configMap['click_check_percentage']    || '30');
   const clickCheckWaitSecs = parseInt(configMap['click_check_wait_seconds']  || '5');
   const clickCheckMaxRetry = parseInt(configMap['click_check_max_retries']   || '3');
-  // Dwell: use configured values but hard-cap at DWELL_MAX_SECONDS
-  const dwellMinSecs       = Math.min(parseInt(configMap['dwell_check_seconds_min'] || '30'), DWELL_MAX_SECONDS);
-  const dwellMaxSecs       = Math.min(parseInt(configMap['dwell_check_seconds_max'] || '120'), DWELL_MAX_SECONDS);
+  const dwellMinSecs       = parseInt(configMap['dwell_check_seconds_min']   || '30');
+  const dwellMaxSecs       = parseInt(configMap['dwell_check_seconds_max']   || '500');
 
   console.log(`Target: ${targetUrl}`);
   console.log(`Referrers: ${referrerList.map(r => r.name).join(', ') || 'none'}`);
   console.log(`Click-check: ${clickCheckPct}% | Wait: ${clickCheckWaitSecs}s | Retries: ${clickCheckMaxRetry}`);
-  console.log(`Dwell check: ${dwellMinSecs}s–${dwellMaxSecs}s (hard cap: ${DWELL_MAX_SECONDS}s)`);
+  console.log(`Dwell check: ${dwellMinSecs}s–${dwellMaxSecs}s`);
   console.log(`JS error threshold: ${JS_ERROR_THRESHOLD} genuine errors`);
 
   return { targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs, clickCheckMaxRetry, dwellMinSecs, dwellMaxSecs };
 }
 
-const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
-const randMs = (min, max) => Math.floor(Math.random() * (max - min)) + min;
+const pick     = arr => arr[Math.floor(Math.random() * arr.length)];
+const randMs   = (min, max) => Math.floor(Math.random() * (max - min)) + min;
 const randSecs = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const sleep  = ms => new Promise(r => setTimeout(r, ms));
+const sleep    = ms => new Promise(r => setTimeout(r, ms));
 
 // ── Game embed detection ──────────────────────────────────────────────────────
 async function detectGameEmbed(page, pageContent) {
@@ -267,8 +258,6 @@ async function confirmLoginPage(page) {
 
   const title = await page.title().catch(() => '');
   console.log(`Login NOT confirmed. URL: ${currentUrl} | Title: ${title}`);
-  console.log(`Page excerpt: ${pageContent.substring(0, 500)}`);
-
   return { confirmed: false, method: 'none', detail: `url=${currentUrl}` };
 }
 
@@ -285,7 +274,6 @@ async function runClickCheck(page, waitSecs, maxRetries) {
     if (!btn) {
       console.log(`  Button not found on attempt ${attempt}.`);
       if (attempt < maxRetries) { await sleep(2000); continue; }
-      console.log(`  All ${maxRetries} attempts exhausted — button never found.`);
       return { done: false, loginShown: false, attempts, finalMethod: 'button_not_found' };
     }
 
@@ -300,8 +288,6 @@ async function runClickCheck(page, waitSecs, maxRetries) {
       if (confirmed) return { done: true, loginShown: true, attempts, finalMethod: method };
 
       console.log(`  Not confirmed. Retrying...`);
-      const title = await page.title().catch(() => '');
-      console.log(`  Current: "${title}" | ${page.url()}`);
       await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
       await sleep(1000);
 
@@ -311,24 +297,21 @@ async function runClickCheck(page, waitSecs, maxRetries) {
   }
 
   console.log(`  All ${maxRetries} attempts exhausted — login page never confirmed.`);
-  try {
-    const content = await page.content().catch(() => '');
-    console.log(`  Final page (first 800 chars):\n  ${content.substring(0, 800)}`);
-  } catch (_) {}
-
   return { done: true, loginShown: false, attempts, finalMethod: 'exhausted' };
 }
 
 // ── Dwell check ───────────────────────────────────────────────────────────────
-async function runDwellCheck(page, dwellSecs, existingJsErrors) {
-  const cappedDwell = Math.min(dwellSecs, DWELL_MAX_SECONDS);
-  console.log(`\n=== DWELL CHECK START: staying ${cappedDwell}s (configured: ${dwellSecs}s, cap: ${DWELL_MAX_SECONDS}s), polling every 5s ===`);
+// Runs AFTER the bot has navigated to the game page and (optionally) clicked
+// "Run game". Simulates a real user staying on the page.
+// Duration is configured via dwell_check_seconds_min/max in Supabase monitor_config.
+async function runDwellCheck(page, dwellSecs) {
+  console.log(`\n=== DWELL CHECK START: staying ${dwellSecs}s on page, polling every 5s ===`);
 
-  const dwellErrors = [];
-  const startUrl    = page.url();
-  let crashed       = false;
+  const dwellErrors  = [];
+  const startUrl     = page.url();
+  let crashed        = false;
   const pollInterval = 5000;
-  const deadline    = Date.now() + cappedDwell * 1000;
+  const deadline     = Date.now() + dwellSecs * 1000;
 
   const dwellJsErrors = [];
   const errorListener = msg => {
@@ -352,7 +335,7 @@ async function runDwellCheck(page, dwellSecs, existingJsErrors) {
       const currentUrl   = page.url();
       const currentTitle = await page.title().catch(() => '');
       const content      = await page.content().catch(() => '');
-      const elapsed      = Math.round((Date.now() - (deadline - cappedDwell * 1000)) / 1000);
+      const elapsed      = Math.round((Date.now() - (deadline - dwellSecs * 1000)) / 1000);
 
       const crashMatch = CRASH_INDICATORS.find(i => content.includes(i) || currentTitle.includes(i));
       if (crashMatch) {
@@ -372,12 +355,12 @@ async function runDwellCheck(page, dwellSecs, existingJsErrors) {
         console.log(`  [${elapsed}s] Page appears blank`);
       }
 
-      console.log(`  [${elapsed}s/${cappedDwell}s] ok — "${currentTitle}" | genuine_js_errors: ${dwellJsErrors.length}`);
+      console.log(`  [${elapsed}s/${dwellSecs}s] ok — "${currentTitle}" | genuine_js_errors: ${dwellJsErrors.length}`);
 
     } catch (e) {
       crashed = true;
       dwellErrors.push(`Page context destroyed: ${e.message.substring(0, 100)}`);
-      console.log(`  Page context destroyed — likely crashed: ${e.message.substring(0, 100)}`);
+      console.log(`  Page context destroyed: ${e.message.substring(0, 100)}`);
       break;
     }
   }
@@ -390,12 +373,11 @@ async function runDwellCheck(page, dwellSecs, existingJsErrors) {
     console.log(`  Genuine dwell JS errors: ${dwellJsErrors.length}`);
   }
 
-  console.log(`=== DWELL CHECK END: crashed=${crashed} errors=${dwellErrors.length} dwell=${cappedDwell}s ===\n`);
-  return { crashed, dwellErrors, dwellSecs: cappedDwell };
+  console.log(`=== DWELL CHECK END: crashed=${crashed} errors=${dwellErrors.length} dwell=${dwellSecs}s ===\n`);
+  return { crashed, dwellErrors, dwellSecs };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-
 async function run() {
   const {
     targetUrl, referrerList, clickCheckPct, clickCheckWaitSecs,
@@ -455,7 +437,6 @@ async function run() {
     }
 
     // ── Step 2: Navigate to target ────────────────────────────────────────────
-    // Collect ALL JS errors but filter noise before deciding ok/fail
     const allJsErrors = [];
     page.on('console', msg => {
       if (msg.type() === 'error') allJsErrors.push(msg.text().substring(0, 300));
@@ -510,7 +491,7 @@ async function run() {
         const { found: embedFound } = await detectGameEmbed(page, pageContent);
         result.game_iframe_loaded = embedFound;
 
-        // ── Step 4: Click-check with retries ──────────────────────────────────
+        // ── Step 4: Click-check ───────────────────────────────────────────────
         if (doClickCheck) {
           console.log('\n=== CLICK-CHECK START ===');
           const { done, loginShown, attempts, finalMethod } = await runClickCheck(
@@ -519,20 +500,17 @@ async function run() {
           result.click_check_done   = done;
           result.login_prompt_shown = loginShown;
           console.log(`=== CLICK-CHECK END: done=${done} login=${loginShown} attempts=${attempts} method=${finalMethod} ===`);
-
-          // ── Step 5: Dwell check ───────────────────────────────────────────
-          const { crashed, dwellErrors, dwellSecs: actualDwell } = await runDwellCheck(
-            page, dwellSecs, allJsErrors
-          );
-          result.dwell_crash   = crashed;
-          result.dwell_errors  = JSON.stringify(dwellErrors.slice(0, 20));
-          result.dwell_seconds = actualDwell;
-
-        } else {
-          await sleep(randMs(3000, 6000));
         }
 
-        // Filter noise before storing and before deciding ok/fail
+        // ── Step 5: Dwell check ───────────────────────────────────────────────
+        // Always runs — simulates real user staying on game page or login page.
+        // Duration from Supabase config (dwell_check_seconds_min/max).
+        const { crashed, dwellErrors, dwellSecs: actualDwell } = await runDwellCheck(page, dwellSecs);
+        result.dwell_crash   = crashed;
+        result.dwell_errors  = JSON.stringify(dwellErrors.slice(0, 20));
+        result.dwell_seconds = actualDwell;
+
+        // Filter noise before deciding ok/fail
         const genuineErrors = allJsErrors.filter(e => !isNoiseError(e));
         result.js_errors = allJsErrors.slice(0, 10); // store all for visibility
         console.log(`JS errors: ${allJsErrors.length} total, ${genuineErrors.length} genuine (threshold: ${JS_ERROR_THRESHOLD})`);
@@ -540,7 +518,6 @@ async function run() {
         const httpOk = !responseStatus || (responseStatus >= 200 && responseStatus < 400);
         result.ok = hasExpectedContent && !isBlocked && httpOk;
 
-        // Only fail on genuine errors above threshold — not itch.io noise
         if (genuineErrors.length >= JS_ERROR_THRESHOLD) {
           result.render_error = `${genuineErrors.length} genuine JS errors`;
           result.ok = false;
