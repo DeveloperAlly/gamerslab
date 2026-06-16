@@ -77,16 +77,20 @@ jobs:
         include: ${{ fromJson(needs.pick-vpn-configs.outputs.matrix) }}
 
     runs-on: ubuntu-latest
-    # Timeout: install (~3min) + VPN (~1min) + Playwright run (~3min) + dwell (max 120s = 2min) + push (~1min) = ~10min
-    # 15min gives comfortable headroom without risking cancellation during dwell
-    timeout-minutes: 15
+    # 30 min budget:
+    # ~1min  install wireguard
+    # ~3min  install playwright + chromium (cached after first run)
+    # ~1min  VPN connect + verify
+    # ~2min  page nav + referrer + click check
+    # ~8min  dwell (max 500s = ~8.3min)
+    # ~1min  VPN disconnect + Supabase push
+    # = ~16min typical, 30min gives full headroom
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
 
-      # ── Install everything BEFORE connecting VPN ──────────────────────────
-      # VPN routes ALL traffic — npm/apt must complete first on plain network
-
+      # ── Install WireGuard BEFORE Playwright (no cache needed, fast) ───────
       - name: Install WireGuard
         run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard resolvconf
 
@@ -95,28 +99,48 @@ jobs:
         with:
           node-version: '24'
 
+      # ── Cache Playwright browser binaries ─────────────────────────────────
+      # Playwright chromium + deps is 300MB+ and takes 3-5min to install.
+      # Cache it by Playwright version so it's only downloaded once per version.
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(npm show playwright version)" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright binaries
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.playwright-version.outputs.version }}
+
       - name: Install Playwright
         run: |
           npm init -y
           npm install playwright@latest
-          npx playwright install chromium --with-deps
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium --with-deps
+
+      - name: Install Playwright system deps only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       # ── Connect VPN — Playwright runs through ProtonVPN tunnel ────────────
-
       - name: Connect VPN (${{ matrix.country }})
         id: vpn
         run: |
           echo "Connecting via ${{ matrix.conf }} → ${{ matrix.country }}"
           sudo cp proton/${{ matrix.conf }} /etc/wireguard/wg0.conf
 
-          # Try connecting, retry once on failure
+          # Try connecting, retry once on failure before falling back
           if ! sudo wg-quick up wg0 2>&1; then
             echo "VPN connect failed, retrying in 5s..."
             sleep 5
             sudo wg-quick down wg0 2>/dev/null || true
             if ! sudo wg-quick up wg0 2>&1; then
               echo "vpn_connected=false" >> $GITHUB_OUTPUT
-              echo "VPN failed after retry — will run without VPN"
+              echo "VPN failed after retry — running without VPN (Azure IP)"
               exit 0
             fi
           fi
@@ -128,6 +152,7 @@ jobs:
           echo "Outbound IP: $ACTUAL (expected: ${{ matrix.country }})"
           echo "vpn_connected=true" >> $GITHUB_OUTPUT
 
+      # ── Playwright runs through VPN tunnel ───────────────────────────────
       - name: Run Playwright monitor
         env:
           REGION: ${{ matrix.region }}
@@ -147,9 +172,7 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: node .github/scripts/surge.js
 
-      # ── Disconnect VPN before pushing results ─────────────────────────────
-      # Supabase push requires plain network — VPN blocks external DNS
-
+      # ── Disconnect VPN BEFORE pushing — Supabase requires plain network ───
       - name: Disconnect VPN
         if: always()
         run: sudo wg-quick down wg0 2>/dev/null || true
